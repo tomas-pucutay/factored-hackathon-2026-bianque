@@ -34,8 +34,7 @@ lint: ## Check code without modifying it
 test: ## Run test suite
 	uv run pytest
 
-check: ## Lint + tests: run before every commit
-	lint test
+check: lint test ## Lint + tests: run before every commit
 
 # --- Data pipeline -----------------------------------------------------------
 
