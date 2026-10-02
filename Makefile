@@ -2,7 +2,7 @@
 .PHONY: help \
 		install hooks \
 		format lint test check \
-		bronze silver gold quality pipeline \
+		bronze-plan bronze silver gold quality pipeline \
 		train evaluate \
 		serve docker-build \
 		clean
@@ -37,6 +37,9 @@ test: ## Run test suite
 check: lint test ## Lint + tests: run before every commit
 
 # --- Data pipeline -----------------------------------------------------------
+
+bronze-plan: ## List pending S3 files per dataset without downloading
+	$(PY) -m $(PKG).pipeline.bronze --dry-run
 
 bronze: ## S3 CSV -> data/bronze Parquet (incremental by ETag)
 	$(PY) -m $(PKG).pipeline.bronze
