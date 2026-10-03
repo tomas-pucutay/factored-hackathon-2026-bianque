@@ -163,3 +163,66 @@ def test_dedupe_keeps_latest_ingested_row(tmp_path):
 
     assert (result.rows_in, result.duplicates, result.rows_out) == (2, 1, 1)
     assert con.sql(f"SELECT score FROM '{tmp_path}/silver/t/*.parquet'").fetchall() == [(2,)]
+
+
+CHILD = parse_contract(
+    {
+        "table": "child",
+        "kind": "dimension",
+        "primary_key": ["id"],
+        "dedupe_order": ["_ingested_at DESC"],
+        "columns": {
+            "id": {"type": "VARCHAR", "nullable": False},
+            "parent_q": {"type": "VARCHAR"},
+            "parent_n": {"type": "VARCHAR"},
+        },
+        "foreign_keys": [
+            {"column": "parent_q", "references": "t.id"},
+            {"column": "parent_n", "references": "t.id", "on_orphan": "nullify"},
+        ],
+    }
+)
+
+
+def test_foreign_keys_quarantine_or_nullify_orphans(tmp_path):
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    parent_cols = ["id", "score", "amount", "active", "country", "langs"]
+    write_bronze(tmp_path, "t", "p", [("a", None, None, None, None, None)], parent_cols)
+    write_bronze(
+        tmp_path,
+        "child",
+        "c",
+        [
+            ("ok", "a", "a"),  # both keys valid
+            ("orphan", "zzz", "a"),  # quarantine policy -> quarantined
+            ("nulled", "a", "zzz"),  # nullify policy -> kept with NULL
+            ("no_key", None, None),  # NULL keys are not orphans
+        ],
+        ["id", "parent_q", "parent_n"],
+    )
+
+    con = connect(settings)
+    build_table(con, settings, CONTRACT)
+    result = build_table(con, settings, CHILD)
+
+    assert result.quarantined == 1
+    assert result.nullified == {"parent_n": 1}
+    rows = con.sql(
+        f"SELECT id, parent_n FROM '{tmp_path}/silver/child/*.parquet' ORDER BY id"
+    ).fetchall()
+    assert rows == [("no_key", None), ("nulled", None), ("ok", "a")]
+    q = con.sql(
+        f"SELECT id, _reason FROM '{tmp_path}/silver/_quarantine/child/*.parquet'"
+    ).fetchall()
+    assert q == [("orphan", "orphan:parent_q")]
+
+
+def test_missing_parent_fails_clearly(tmp_path):
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    write_bronze(tmp_path, "child", "c", [("x", None, None)], ["id", "parent_q", "parent_n"])
+    with pytest.raises(FileNotFoundError, match="build its parents first"):
+        build_table(connect(settings), settings, CHILD)

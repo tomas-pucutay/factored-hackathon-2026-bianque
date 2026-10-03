@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import duckdb
@@ -144,6 +144,36 @@ def dedupe_select(contract: Contract, source: str) -> str:
     )
 
 
+def fk_select(contract: Contract, source: str, parents: dict[str, str]) -> str:
+    """Check foreign keys against the parents' silver tables.
+
+    Adds `_orphans` (FKs with on_orphan: quarantine) and `_nullified` (FKs with
+    on_orphan: nullify, whose value is replaced by NULL). `parents` maps table -> relation.
+    """
+    joins, orphans, nullified, replaces = [], [], [], []
+    for i, fk in enumerate(contract.foreign_keys):
+        p, col = f"_p{i}", f"s.{q(fk.column)}"
+        joins.append(
+            f"LEFT JOIN (SELECT DISTINCT {q(fk.ref_column)} AS k FROM {parents[fk.table]}) {p} "
+            f"ON {col} = {p}.k"
+        )
+        is_orphan = f"{col} IS NOT NULL AND {p}.k IS NULL"
+        if fk.on_orphan == "nullify":
+            nullified.append(f"CASE WHEN {is_orphan} THEN '{fk.column}' END")
+            replaces.append(f"CASE WHEN {is_orphan} THEN NULL ELSE {col} END AS {q(fk.column)}")
+        else:
+            orphans.append(f"CASE WHEN {is_orphan} THEN 'orphan:{fk.column}' END")
+    star = f"s.* REPLACE ({', '.join(replaces)})" if replaces else "s.*"
+
+    def labels(items: list[str]) -> str:
+        return f"list_filter([{', '.join(items)}]::VARCHAR[], e -> e IS NOT NULL)"
+
+    return (
+        f"SELECT {star}, {labels(orphans)} AS _orphans, {labels(nullified)} AS _nullified "
+        f"FROM {source} s {' '.join(joins)}"
+    )
+
+
 @dataclass
 class TableResult:
     table: str
@@ -151,6 +181,7 @@ class TableResult:
     quarantined: int = 0
     duplicates: int = 0
     rows_out: int = 0
+    nullified: dict[str, int] = field(default_factory=dict)
 
 
 def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
@@ -162,6 +193,13 @@ def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
     con.execute(f"SET temp_directory = {lit(str(tmp))}")
     con.execute("SET preserve_insertion_order = false")
     return con
+
+
+def silver_relation(settings: Settings, table: str) -> str:
+    path = settings.silver_root / table
+    if not path.exists():
+        raise FileNotFoundError(f"silver table {table!r} not built yet: build its parents first")
+    return f"read_parquet({lit(str(path / '**' / '*.parquet'))}, hive_partitioning = true)"
 
 
 def bronze_files(settings: Settings, table: str) -> list[str]:
@@ -206,35 +244,60 @@ def build_table(
     result.rows_in = con.execute("SELECT count(*) FROM staged").fetchone()[0]
 
     # Rows that cannot be typed or miss a required value: kept aside with the reason.
-    result.quarantined = con.execute(
-        "SELECT count(*) FROM staged WHERE len(_errors) > 0"
-    ).fetchone()[0]
-    quarantine_dir = settings.silver_root / "_quarantine" / t
-    if result.quarantined:
-        write_parquet(
-            con,
-            "SELECT * EXCLUDE (_errors), array_to_string(_errors, '; ') AS _reason "
-            "FROM staged WHERE len(_errors) > 0",
-            quarantine_dir,
-            None,
-        )
-    else:
-        shutil.rmtree(quarantine_dir, ignore_errors=True)
     con.execute(
-        "CREATE OR REPLACE TEMP VIEW valid AS SELECT * EXCLUDE (_errors) FROM staged WHERE len(_errors) = 0"
+        "CREATE OR REPLACE TEMP TABLE quarantine AS SELECT * EXCLUDE (_errors), "
+        "array_to_string(_errors, '; ') AS _reason FROM staged WHERE len(_errors) > 0"
     )
-
+    con.execute(
+        "CREATE OR REPLACE TEMP VIEW valid AS "
+        "SELECT * EXCLUDE (_errors) FROM staged WHERE len(_errors) = 0"
+    )
     con.execute(f"CREATE OR REPLACE TEMP VIEW deduped AS {dedupe_select(contract, 'valid')}")
 
-    final = "deduped"
+    # Foreign keys against the parents' silver tables (built first by build_order).
+    parents = {fk.table: silver_relation(settings, fk.table) for fk in contract.foreign_keys}
+    kind = "TABLE" if contract.foreign_keys else "VIEW"
+    con.execute(
+        f"CREATE OR REPLACE TEMP {kind} checked AS {fk_select(contract, 'deduped', parents)}"
+    )
+    con.execute(
+        "INSERT INTO quarantine SELECT * EXCLUDE (_orphans, _nullified), "
+        "array_to_string(_orphans, '; ') FROM checked WHERE len(_orphans) > 0"
+    )
+    result.nullified = dict(
+        con.execute(
+            "SELECT e, count(*) FROM (SELECT unnest(_nullified) AS e FROM checked) GROUP BY e"
+        ).fetchall()
+    )
+    con.execute(
+        "CREATE OR REPLACE TEMP VIEW final AS "
+        "SELECT * EXCLUDE (_orphans, _nullified) FROM checked WHERE len(_orphans) = 0"
+    )
+
+    result.quarantined = con.execute("SELECT count(*) FROM quarantine").fetchone()[0]
+    quarantine_dir = settings.silver_root / "_quarantine" / t
+    if result.quarantined:
+        write_parquet(con, "SELECT * FROM quarantine", quarantine_dir, None)
+    else:
+        shutil.rmtree(quarantine_dir, ignore_errors=True)
+
     out = settings.silver_root / t
-    write_parquet(con, f"SELECT * FROM {final}", out, contract.partition_column)
+    write_parquet(con, "SELECT * FROM final", out, contract.partition_column)
     # Count from the written files (Parquet metadata) instead of re-running the query.
     result.rows_out = con.execute(
         f"SELECT count(*) FROM read_parquet({lit(str(out / '**' / '*.parquet'))})"
     ).fetchone()[0]
     result.duplicates = result.rows_in - result.quarantined - result.rows_out
-    con.execute("DROP TABLE staged")
+    # Free the temp objects, dependents first.
+    for name, obj in [
+        ("final", "VIEW"),
+        ("checked", kind),
+        ("deduped", "VIEW"),
+        ("valid", "VIEW"),
+        ("quarantine", "TABLE"),
+        ("staged", "TABLE"),
+    ]:
+        con.execute(f"DROP {obj} IF EXISTS {name}")
     return result
 
 
@@ -250,12 +313,13 @@ def main(tables: list[str] | None = None) -> list[TableResult]:
     for t in order:
         r = build_table(con, settings, contracts[t])
         log.info(
-            "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d",
+            "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d nullified=%s",
             t,
             r.rows_in,
             r.quarantined,
             r.duplicates,
             r.rows_out,
+            r.nullified or "-",
         )
         results.append(r)
     return results
