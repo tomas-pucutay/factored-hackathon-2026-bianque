@@ -12,6 +12,11 @@ kind: fact                     # fact | dimension | reference
 description: ...
 primary_key: [transaction_id]
 partition_column: process_date # facts only: drives the late-arrival window
+process_day:                   # facts only: how the source assigns process_date (checked, never recomputed)
+  timestamp: transaction_date  # events before the cutoff belong to the previous process day
+  cutoff: "06:00"
+  tolerance_minutes: 0         # optional clock skew around the cutoff
+  # or, for child tables: inherits: {table: call_center_interactions, via: interaction_id}
 dedupe_order: [_ingested_at DESC, _source_key DESC]  # latest row per primary key wins
 
 columns:
@@ -62,6 +67,16 @@ Observed in bronze on 2026-10-03:
   `campaign_sends.open_country`; `value_map` normalizes them to `Mexico`.
 - `service_agents.languages` is a comma-separated list of Spanish names
   (`español, inglés, portugués`); silver turns it into a list of ISO codes (`[es, en, pt]`).
+- `process_date` is a business day, not the calendar date of the event, and the rule differs
+  per table (see `process_day` in each fact contract): 06:00 cutoff for transactions,
+  campaign sends and digital events (up to 10 minutes of clock skew), 08:00 cutoff for
+  call center interactions and complaints, and inherited from the interaction for surveys and
+  transcripts. Silver keeps the source `process_date` as the partition and watermark key.
+- `campaign_sends.subject` contains `"¡Oferta especial en nan!"` in 38,142 rows, a pandas NaN
+  leaked from campaigns without a promoted product; it becomes NULL. A scan of every text
+  column in all tables found no other leaked placeholders, blank strings or stray whitespace.
+- `campaign_sends.was_opened` is NULL by design for undelivered sends and for Voice and
+  WhatsApp, which have no open tracking; it is not coerced to false.
 - `daily_exchange_rates` covers all 12 currency pairs per day (13,164 rows, not 3,000).
 - Mexican customers' products are all in USD; there are no MXN products or transactions.
 - `complaints.origin_interaction_id` is 100% null.
