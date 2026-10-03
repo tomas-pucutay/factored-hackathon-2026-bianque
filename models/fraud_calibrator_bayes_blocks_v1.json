@@ -1,0 +1,35 @@
+{
+  "model_version": "bayes_blocks_v1",
+  "predicts": "probability that a transaction is fraud, from source fraud_score",
+  "trained_on": "gold.transaction_features",
+  "trained_before": "2025-07-01",
+  "train_rows": 2995552,
+  "train_frauds": 3014,
+  "credible_level": 0.95,
+  "name": "bayes_blocks",
+  "prior": {
+    "a": 0.5,
+    "b": 0.5
+  },
+  "penalty": 14.912639079727837,
+  "blocks": [
+    {
+      "low": 0.0,
+      "high": 30.0,
+      "n": 2394986,
+      "k": 733
+    },
+    {
+      "low": 30.01,
+      "high": 99.99,
+      "n": 1651,
+      "k": 1651
+    }
+  ],
+  "unscored": {
+    "low": null,
+    "high": null,
+    "n": 598915,
+    "k": 630
+  }
+}
