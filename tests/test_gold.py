@@ -165,3 +165,61 @@ def test_future_transactions_do_not_change_past_features(tmp_path_factory):
     for tid in ["t1", "t2", "t3", "t4"]:
         assert after[tid] == before[tid], tid
     assert after["t5"]["n_tx_24h"] == 1  # t5 itself sees t4
+
+
+def gold_rows(root, table):
+    rel = duckdb.sql(
+        f"SELECT * FROM read_parquet('{root}/gold/{table}/**/*.parquet', hive_partitioning = true)"
+    )
+    return [dict(zip(rel.columns, r, strict=True)) for r in rel.fetchall()]
+
+
+def test_customer_360_snapshot(tmp_path):
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_customer_and_product(tmp_path)
+    write_silver(
+        tmp_path,
+        "customers",
+        [
+            {"customer_id": "c1", "country": "Colombia", "segment": "Basic", "age_band": "25-34"},
+            {"customer_id": "c2", "country": "Mexico", "segment": "Plus", "age_band": "65+"},
+        ],
+    )
+    write_silver(
+        tmp_path,
+        "transactions",
+        [
+            tx("old", "2026-01-01 10:00:00", 10, fraud=True),
+            tx("recent", "2026-06-10 10:00:00", 30),
+            tx("last", "2026-06-17 10:00:00", 50, country="Brazil"),  # sets as_of_date
+        ],
+    )
+    write_silver(
+        tmp_path,
+        "complaints",
+        [
+            {
+                "complaint_id": "k1",
+                "customer_id": "c1",
+                "creation_date": "2026-05-01 10:00:00",
+                "process_date": "2026-05-01",
+                "status": "Open",
+                "reception_channel": "Regulator",
+            },
+        ],
+    )
+    build(lake_settings(tmp_path), {"customer_360": False})
+    rows = {r["customer_id"]: r for r in gold_rows(tmp_path, "customer_360")}
+
+    c1, c2 = rows["c1"], rows["c2"]
+    assert str(c1["as_of_date"]) == "2026-06-17"
+    assert (c1["n_tx_total"], c1["n_tx_90d"], float(c1["usd_90d"])) == (3, 2, 80.0)
+    assert (c1["n_tx_countries"], c1["observed_tenure_days"]) == (2, 167)
+    assert (c1["n_products"], c1["has_credit_card"]) == (1, True)
+    assert (c1["n_open_complaints"], c1["has_regulator_complaint"]) == (1, True)
+    assert not any("fraud" in col for col in c1)  # no labels in a snapshot
+
+    # A customer without activity: zeros, not NULLs.
+    assert (c2["n_tx_total"], c2["n_products"], c2["n_complaints_total"]) == (0, 0, 0)
+    assert c2["first_tx_at"] is None
