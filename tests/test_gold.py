@@ -1,4 +1,5 @@
 import duckdb
+import numpy as np
 import pytest
 from conftest import CONTRACTS, lake_settings, write_silver
 
@@ -522,3 +523,50 @@ def test_unseen_score_bins_take_the_nearest_observed_bin(tmp_path):
     )  # nearest: bin 10
     assert cal[10]["is_filled"] is False and cal[10]["p_fraud"] > 0.5
     assert cal[1]["p_fraud"] == cal[0]["p_fraud"]  # filled from the nearest lower bin on ties
+
+
+def test_transaction_scores_use_the_trained_model_when_configured(tmp_path):
+    import json
+    from datetime import date
+
+    from bianque.models.calibration import BayesianBlocksCalibrator, Block
+
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_customer_and_product(tmp_path)
+    rows = [
+        {**tx("low", "2026-01-01 10:00:00", 100), "fraud_score": 30.0},
+        {**tx("high", "2026-01-01 11:00:00", 100), "fraud_score": 30.01},
+        {**tx("none", "2026-01-01 12:00:00", 100), "fraud_score": None},
+    ]
+    write_silver(tmp_path, "transactions", rows)
+    model = BayesianBlocksCalibrator(
+        blocks=(Block(0.0, 30.0, 10_000, 3), Block(30.01, 99.99, 100, 100)),
+        unscored=Block(None, None, 5_000, 5),
+    )
+    path = tmp_path / "model.json"
+    payload = {"model_version": "m_v1", "trained_before": "2025-07-01", "credible_level": 0.95}
+    path.write_text(json.dumps({**payload, **model.to_dict()}))
+
+    settings = lake_settings(tmp_path, eval_train_end=date(2025, 7, 1), fraud_model=path)
+    build(settings, {}, scores=True, serving=False)
+
+    got = {
+        r["transaction_id"]: r
+        for r in duckdb.sql(
+            f"SELECT * FROM read_parquet('{tmp_path}/gold/transaction_scores/**/*.parquet')"
+        )
+        .df()
+        .to_dict("records")
+    }
+    for tid, score in (("low", 30.0), ("high", 30.01), ("none", float("nan"))):
+        lo, hi = model.interval(np.array([score]))
+        assert got[tid]["p_fraud"] == pytest.approx(model.predict(np.array([score]))[0])
+        assert (got[tid]["p_fraud_low"], got[tid]["p_fraud_high"]) == pytest.approx((lo[0], hi[0]))
+        assert got[tid]["model_version"] == "m_v1"
+    assert got["low"]["p_fraud"] < 0.001 < got["none"]["p_fraud"] < 0.01 < got["high"]["p_fraud"]
+    assert len(gold_rows(tmp_path, "score_calibration")) == 21  # baseline still built
+
+    stale = lake_settings(tmp_path, eval_train_end=date(2025, 1, 1), fraud_model=path)
+    with pytest.raises(SystemExit, match="rerun make train"):
+        build(stale, {}, scores=True, serving=False)

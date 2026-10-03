@@ -14,6 +14,7 @@ The prior keeps sparse bins from jumping to 0 or 1. Transactions without a fraud
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import duckdb
 
@@ -94,6 +95,8 @@ def scores_sql(train_end: str, scored_at: str) -> str:
             t.fraud_score AS raw_score,
             coalesce(c.p_fraud, (SELECT avg(is_fraud::INTEGER) FROM transactions
                                  WHERE process_date < DATE {lit(train_end)})) AS p_fraud,
+            NULL::DOUBLE AS p_fraud_low,  -- the histogram has no uncertainty estimate
+            NULL::DOUBLE AS p_fraud_high,
             c.model_version,
             TIMESTAMPTZ {lit(scored_at)} AS scored_at,
             t.process_date >= DATE {lit(train_end)} AS is_out_of_sample,
@@ -106,18 +109,34 @@ def scores_sql(train_end: str, scored_at: str) -> str:
     """
 
 
-def build_transaction_scores(con: duckdb.DuckDBPyConnection, settings: Settings) -> int:
-    """Fit the calibration on train, score every transaction. Returns rows scored."""
-    train_end = settings.eval_train_end.isoformat()
-    scored_at = datetime.now(UTC).isoformat()
+def build_score_calibration(con: duckdb.DuckDBPyConnection, settings: Settings) -> None:
+    """Fit the histogram on train, write gold.score_calibration and register it as a view.
+
+    Always built, even when a trained model scores the transactions: it is the baseline that
+    make train compares against.
+    """
     cal_out = settings.gold_root / "score_calibration"
-    write_parquet(con, calibration_sql(train_end), cal_out, partitioned=False)
+    write_parquet(
+        con, calibration_sql(settings.eval_train_end.isoformat()), cal_out, partitioned=False
+    )
     con.execute(
         "CREATE OR REPLACE TEMP VIEW score_calibration AS "
         f"SELECT * FROM read_parquet({lit(str(cal_out / '*.parquet'))})"
     )
+
+
+def build_transaction_scores(con: duckdb.DuckDBPyConnection, settings: Settings) -> int:
+    """Fit the calibration on train, score every transaction. Returns rows scored."""
+    build_score_calibration(con, settings)
+    scored_at = datetime.now(UTC).isoformat()
     out = settings.gold_root / "transaction_scores"
-    write_parquet(con, scores_sql(train_end, scored_at), out, partitioned=True)
+    write_parquet(
+        con, scores_sql(settings.eval_train_end.isoformat(), scored_at), out, partitioned=True
+    )
+    return count_rows(con, out)
+
+
+def count_rows(con: duckdb.DuckDBPyConnection, out: Path) -> int:
     return con.execute(
         f"SELECT count(*) FROM read_parquet({lit(str(out / '**' / '*.parquet'))})"
     ).fetchone()[0]

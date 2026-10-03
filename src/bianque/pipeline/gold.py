@@ -3,8 +3,9 @@
 Each table is a portable SQL file in sql/gold/<table>.sql that reads silver tables by name
 (and gold tables built before it). Outputs go to <LAKE_ROOT>/gold/<table>/.
 
-After the tables, it builds the baseline transaction_scores and the serving slice, then
-verifies the frozen evaluation sets in eval/frozen/ against their recorded hashes.
+After the tables, it builds transaction_scores (with the trained calibrator, or the baseline)
+and the serving slice, then verifies the frozen evaluation sets in eval/frozen/ against their
+recorded hashes.
 
 Usage:
   python -m bianque.pipeline.gold              # build gold, verify the frozen eval sets
@@ -22,7 +23,7 @@ import yaml
 
 from bianque.config import Settings, load_settings
 from bianque.evaluation.frozen_sets import freeze
-from bianque.models.baselines import build_transaction_scores
+from bianque.models.scoring import build_transaction_scores
 from bianque.pipeline.serving import build_serving_slice
 from bianque.pipeline.silver import connect, lit, q, write_parquet
 
