@@ -5,6 +5,7 @@ Every step is driven by the table's contract in contracts/<table>.yaml.
 Usage:
   python -m bianque.pipeline.silver                     # all tables, parents first
   python -m bianque.pipeline.silver --table customers   # one or more tables
+  python -m bianque.pipeline.silver --full              # ignore the watermark, rebuild all
 """
 
 from __future__ import annotations
@@ -22,10 +23,22 @@ import duckdb
 
 from bianque.config import Settings, load_settings, pii_hash_key
 from bianque.pipeline.contracts import Column, Contract, build_order, load_contracts
+from bianque.pipeline.watermark import (
+    SilverState,
+    contract_hash,
+    fingerprint,
+    load_state,
+    plan,
+    save_state,
+    state_path,
+)
 
 log = logging.getLogger("silver")
 
 LINEAGE = ("_source_key", "_source_etag", "_ingested_at")
+# Facts are Hive-partitioned by month of their partition column: daily folders would
+# mean ~1,100 tiny files per table, and a month is small enough to rewrite.
+PARTITION_KEY = "process_month"
 
 
 class SchemaError(Exception):
@@ -133,6 +146,12 @@ def typed_select(contract: Contract, source: str, extra_columns: list[str] = ())
         checks += error_checks(col, typed, src)
     selects += [q(c) for c in extra_columns]
     selects += [q(c) for c in LINEAGE]
+    if contract.partition_column:
+        # Physical partition: one folder per month. Falls back to the raw text so a row whose
+        # date fails to cast is still quarantined under the month it was read for.
+        pc = contract.partition_column
+        typed = typed_column(contract.columns[pc], {})[0]
+        selects.append(f"coalesce(strftime({typed}, '%Y-%m'), left({q(pc)}, 7)) AS {PARTITION_KEY}")
     errors = f"list_filter([{', '.join(checks)}]::VARCHAR[], e -> e IS NOT NULL)"
     return f"SELECT {', '.join(selects)}, {errors} AS _errors FROM {source}"
 
@@ -249,6 +268,8 @@ class TableResult:
     duplicates: int = 0
     rows_out: int = 0
     nullified: dict[str, int] = field(default_factory=dict)
+    mode: str = "full"
+    late_rows: int = 0
 
 
 def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
@@ -273,18 +294,6 @@ def bronze_files(settings: Settings, table: str) -> list[str]:
     return sorted(str(p) for p in (settings.bronze_root / table).rglob("*.parquet"))
 
 
-PARTITION_KEY = "process_month"
-
-
-def partitioned_select(query: str, partition_column: str) -> str:
-    """Add the physical partition key: one folder per month of the partition column.
-
-    Daily folders would mean ~1,100 tiny files per table; a month is small enough to
-    rewrite when late arrivals touch it.
-    """
-    return f"SELECT *, strftime({q(partition_column)}, '%Y-%m') AS {PARTITION_KEY} FROM ({query})"
-
-
 def _swap(new: Path, target: Path) -> None:
     """Replace `target` with `new` (either may be missing), deleting the old copy last."""
     old = target.with_name(target.name + ".old")
@@ -300,23 +309,21 @@ def write_parquet(
     con: duckdb.DuckDBPyConnection,
     query: str,
     out: Path,
-    partition_column: str | None,
+    partitioned: bool,
     months: set[str] | None = None,
 ) -> None:
     """Write a query to a Parquet folder, replacing the old data only after success.
 
-    With a partition column the output is Hive-partitioned by month (`process_month=YYYY-MM`).
+    Partitioned output is Hive-partitioned by the query's `process_month` column.
     With `months`, only those month partitions are replaced and the rest are left untouched
     (incremental runs); a month with no rows in the query is removed.
     """
     tmp = out.with_name(out.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    if partition_column:
+    if partitioned:
         opts = f"FORMAT parquet, COMPRESSION zstd, PARTITION_BY ({PARTITION_KEY})"
-        con.execute(
-            f"COPY ({partitioned_select(query, partition_column)}) TO {lit(str(tmp))} ({opts})"
-        )
+        con.execute(f"COPY ({query}) TO {lit(str(tmp))} ({opts})")
         tmp.mkdir(exist_ok=True)  # COPY creates nothing when the query is empty
     else:
         tmp.mkdir()
@@ -382,14 +389,23 @@ def build_table(
     settings: Settings,
     contract: Contract,
     pii_key: str | None = None,
+    months: set[str] | None = None,
 ) -> TableResult:
+    """Build one silver table: all of it, or only `months` (incremental run of a fact)."""
     t = contract.table
     result = TableResult(t)
     files = bronze_files(settings, t)
     if not files:
         raise FileNotFoundError(f"{t}: no bronze files under {settings.bronze_root / t}")
+    if months is not None and not contract.partition_column:
+        raise ValueError(f"{t}: incremental builds need a partition_column")
     extra = compare_schema(contract, file_columns(con, files))
     source = f"read_parquet({lit(files)}, union_by_name = true, hive_partitioning = false)"
+    if months is not None:
+        # Range predicates on the raw ISO text let Parquet statistics skip row groups.
+        pc = q(contract.partition_column)
+        ranges = " OR ".join(f"{pc} BETWEEN '{m}-01' AND '{m}-31'" for m in sorted(months))
+        source = f"(SELECT * FROM {source} WHERE {ranges or 'false'})"
 
     # Everything is a view: each pass streams from bronze instead of materializing all rows.
     con.execute(f"CREATE OR REPLACE TEMP VIEW staged AS {typed_select(contract, source, extra)}")
@@ -442,23 +458,30 @@ def build_table(
     apply_table_sql(con, settings, contract, "input", "final")
 
     result.quarantined = con.execute("SELECT count(*) FROM quarantine").fetchone()[0]
+    partitioned = contract.partition_column is not None
     quarantine_dir = settings.silver_root / "_quarantine" / t
-    if result.quarantined:
+    if result.quarantined or months is not None:
         # Quarantined rows get the same PII treatment: raw PII never lands in silver.
         write_parquet(
-            con, pii_select(contract, "quarantine", settings, pii_key), quarantine_dir, None
+            con,
+            pii_select(contract, "quarantine", settings, pii_key),
+            quarantine_dir,
+            partitioned,
+            months,
         )
     else:
         shutil.rmtree(quarantine_dir, ignore_errors=True)
 
     out = settings.silver_root / t
-    write_parquet(
-        con, pii_select(contract, "final", settings, pii_key), out, contract.partition_column
-    )
+    write_parquet(con, pii_select(contract, "final", settings, pii_key), out, partitioned, months)
     # Count from the written files (Parquet metadata) instead of re-running the query.
-    result.rows_out = con.execute(
-        f"SELECT count(*) FROM read_parquet({lit(str(out / '**' / '*.parquet'))})"
-    ).fetchone()[0]
+    dirs = [out / f"{PARTITION_KEY}={m}" for m in sorted(months)] if months is not None else [out]
+    files_out = [str(f) for d in dirs if d.exists() for f in d.rglob("*.parquet")]
+    result.rows_out = (
+        con.execute(f"SELECT count(*) FROM read_parquet({lit(files_out)})").fetchone()[0]
+        if files_out
+        else 0
+    )
     result.duplicates = result.rows_in - result.quarantined - result.rows_out
     # Free the temp objects, dependents first.
     for name, obj in [
@@ -475,26 +498,94 @@ def build_table(
     return result
 
 
-def main(tables: list[str] | None = None) -> list[TableResult]:
+def duplicate_keys_in_silver(
+    con: duckdb.DuckDBPyConnection, settings: Settings, contract: Contract
+) -> int:
+    rel = silver_relation(settings, contract.table)
+    pk = ", ".join(q(c) for c in contract.primary_key)
+    return con.execute(
+        f"SELECT (SELECT count(*) FROM {rel}) - (SELECT count(*) FROM (SELECT DISTINCT {pk} FROM {rel}))"
+    ).fetchone()[0]
+
+
+def run_table(
+    con: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    contract: Contract,
+    pii_key: str | None,
+    full: bool = False,
+) -> TableResult:
+    """Build a table, incrementally for facts when the watermark state allows it."""
+    t = contract.table
+    if not contract.partition_column:
+        return build_table(con, settings, contract, pii_key)  # small: always rebuilt
+
+    files = bronze_files(settings, t)
+    fingerprints = {
+        f: fingerprint(f) for f in files
+    }  # before building: changes mid-run are picked up next time
+    current_hash = contract_hash(
+        settings.contracts_dir / f"{t}.yaml", settings.silver_sql_dir / f"{t}.sql"
+    )
+    spath = state_path(settings.meta_root, t)
+    p = plan(
+        con,
+        files,
+        load_state(spath),
+        current_hash,
+        contract.partition_column,
+        settings.late_arrival_days,
+        full,
+    )
+    result = build_table(con, settings, contract, pii_key, None if p.full else p.months)
+    result.mode = "full" if p.full else f"incremental {sorted(p.months)}"
+    result.late_rows = p.late_rows
+
+    if not p.full and duplicate_keys_in_silver(con, settings, contract):
+        # A key re-delivered under another month: only a full rebuild can pick one row.
+        log.warning("%s: duplicate keys across months, rebuilding in full", t)
+        result = build_table(con, settings, contract, pii_key)
+        result.mode, result.late_rows = "full (duplicate keys across months)", p.late_rows
+        p.full = True
+
+    watermark = p.watermark
+    if p.full:
+        rel = silver_relation(settings, t)
+        watermark = con.execute(
+            f"SELECT max({q(contract.partition_column)}) FROM {rel}"
+        ).fetchone()[0]
+    save_state(spath, SilverState(watermark, fingerprints, current_hash))
+    if p.late_rows:
+        log.warning(
+            "%s: %d late row(s) older than the %d-day window were applied",
+            t,
+            p.late_rows,
+            settings.late_arrival_days,
+        )
+    return result
+
+
+def main(tables: list[str] | None = None, full: bool = False) -> list[TableResult]:
     settings = load_settings()
     contracts = load_contracts(settings.contracts_dir)
-    order = [t for t in build_order(contracts) if not tables or t in tables]
     unknown = set(tables or []) - set(contracts)
     if unknown:
         raise SystemExit(f"Unknown tables: {sorted(unknown)}")
+    order = [t for t in build_order(contracts) if not tables or t in tables]
     con = connect(settings)
     pii_key = pii_hash_key()
     results = []
     for t in order:
-        r = build_table(con, settings, contracts[t], pii_key)
+        r = run_table(con, settings, contracts[t], pii_key, full)
         log.info(
-            "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d nullified=%s",
+            "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d nullified=%s mode=%s",
             t,
             r.rows_in,
             r.quarantined,
             r.duplicates,
             r.rows_out,
             r.nullified or "-",
+            r.mode,
         )
         results.append(r)
     return results
@@ -504,5 +595,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--table", action="append", help="build only this table (repeatable)")
+    parser.add_argument("--full", action="store_true", help="ignore the watermark and rebuild")
     args = parser.parse_args()
-    main(args.table)
+    main(args.table, args.full)

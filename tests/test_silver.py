@@ -349,13 +349,20 @@ def test_write_parquet_replaces_only_the_given_months(tmp_path):
 
     con = duckdb.connect()
     out = tmp_path / "f"
-    rows = "SELECT * FROM (VALUES (1, DATE '2024-01-05'), (2, DATE '2024-02-05'), (3, DATE '2024-03-05')) v(id, d)"
-    write_parquet(con, rows, out, "d")
+    rows = (
+        "SELECT *, strftime(d, '%Y-%m') AS process_month FROM (VALUES (1, DATE '2024-01-05'),"
+        " (2, DATE '2024-02-05'), (3, DATE '2024-03-05')) v(id, d)"
+    )
+    write_parquet(con, rows, out, True)
 
     # Rewrite Feb with new content and empty March; January must stay untouched.
     jan_before = sorted(p.name for p in (out / "process_month=2024-01").iterdir())
     write_parquet(
-        con, "SELECT 20 AS id, DATE '2024-02-07' AS d", out, "d", months={"2024-02", "2024-03"}
+        con,
+        "SELECT 20 AS id, DATE '2024-02-07' AS d, '2024-02' AS process_month",
+        out,
+        True,
+        months={"2024-02", "2024-03"},
     )
 
     got = con.sql(
@@ -372,5 +379,100 @@ def test_write_parquet_rejects_rows_outside_the_given_months(tmp_path):
     con = duckdb.connect()
     with pytest.raises(ValueError, match="other months"):
         write_parquet(
-            con, "SELECT 1 AS id, DATE '2024-05-01' AS d", tmp_path / "f", "d", months={"2024-01"}
+            con,
+            "SELECT 1 AS id, '2024-05' AS process_month",
+            tmp_path / "f",
+            True,
+            months={"2024-01"},
         )
+
+
+FACT = parse_contract(
+    {
+        "table": "f",
+        "kind": "fact",
+        "primary_key": ["id"],
+        "partition_column": "process_date",
+        "dedupe_order": ["_ingested_at DESC", "_source_key DESC"],
+        "columns": {
+            "id": {"type": "VARCHAR", "nullable": False},
+            "process_date": {"type": "DATE", "nullable": False},
+            "value": {"type": "INTEGER"},
+        },
+    }
+)
+FACT_COLS = ["id", "process_date", "value"]
+
+
+def silver_rows(con, root):
+    return con.sql(
+        f"SELECT id, value, process_month FROM read_parquet('{root}/silver/f/**/*.parquet',"
+        " hive_partitioning = true, union_by_name = true) ORDER BY id"
+    ).fetchall()
+
+
+def test_watermark_reprocesses_only_affected_months(tmp_path):
+    import os
+
+    import pandas as pd
+
+    from bianque.pipeline.silver import connect, run_table
+    from bianque.pipeline.watermark import load_state, state_path
+
+    settings = make_settings(tmp_path)
+    con = connect(settings)
+    write_bronze(tmp_path, "f", "jan", [("a", "2024-01-10", "1.0")], FACT_COLS)
+    write_bronze(tmp_path, "f", "jun", [("b", "2026-06-17", "2.0")], FACT_COLS)
+
+    first = run_table(con, settings, FACT, None)
+    assert first.mode == "full"
+    assert load_state(state_path(settings.meta_root, "f")).watermark.isoformat() == "2026-06-17"
+    jan_files = sorted((tmp_path / "silver/f/process_month=2024-01").iterdir())
+
+    # No bronze changes: only the trailing window (June 2026) is reprocessed.
+    assert run_table(con, settings, FACT, None).mode == "incremental ['2026-06']"
+    assert sorted((tmp_path / "silver/f/process_month=2024-01").iterdir()) == jan_files
+
+    # Late partition for January 2024: a duplicate of "a" (newer) plus a new column.
+    late = tmp_path / "bronze/f/late.parquet"
+    df = pd.DataFrame(
+        [("a", "2024-01-10", "10.0", "x"), ("c", "2024-01-11", "3.0", "y")],
+        columns=[*FACT_COLS, "new_col"],
+        dtype="string",
+    )
+    df["_source_key"], df["_source_etag"] = "data/f/late.csv", "late"
+    df["_ingested_at"] = pd.Timestamp("2026-10-05", tz="UTC")
+    df.to_parquet(late, index=False)
+
+    second = run_table(con, settings, FACT, None)
+    assert second.mode == "incremental ['2024-01', '2026-06']"
+    assert second.late_rows == 2
+    assert second.duplicates == 1
+    assert silver_rows(con, tmp_path) == [
+        ("a", 10, "2024-01"),
+        ("b", 2, "2026-06"),
+        ("c", 3, "2024-01"),
+    ]
+    assert (
+        "new_col"
+        in con.sql(f"SELECT * FROM '{tmp_path}/silver/f/process_month=2024-01/*.parquet'").columns
+    )
+
+    # Key "a" re-delivered under a month outside this run (2025-03) while its old row stays
+    # in 2024-01, which is not reprocessed: only a full rebuild can keep the latest one.
+    moved = tmp_path / "bronze/f/moved.parquet"
+    df = pd.DataFrame(
+        [("a", "2025-03-01", "30.0", None)], columns=[*FACT_COLS, "new_col"], dtype="string"
+    )
+    df["_source_key"], df["_source_etag"] = "data/f/moved.csv", "moved"
+    df["_ingested_at"] = pd.Timestamp("2026-10-06", tz="UTC")
+    df.to_parquet(moved, index=False)
+    os.utime(moved)
+
+    third = run_table(con, settings, FACT, None)
+    assert third.mode == "full (duplicate keys across months)"
+    assert silver_rows(con, tmp_path) == [
+        ("a", 30, "2025-03"),
+        ("b", 2, "2026-06"),
+        ("c", 3, "2024-01"),
+    ]
