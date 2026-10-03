@@ -15,7 +15,7 @@ def test_build_runs_sql_files_in_order_and_registers_outputs(empty_silver, tmp_p
     write_silver(empty_silver, "customers", [{"customer_id": "c1", "segment": "Basic"}])
 
     settings = lake_settings(empty_silver, gold_sql_dir=sql_dir)
-    counts = build(settings, {"first": False, "second": False})
+    counts = build(settings, {"first": False, "second": False}, scores=False)
 
     assert counts == {"first": 1, "second": 1}
     n = duckdb.sql(f"SELECT n FROM '{empty_silver}/gold/second/*.parquet'").fetchone()[0]
@@ -114,7 +114,7 @@ def features_lake(root, transactions):
             },
         ],
     )
-    build(lake_settings(root), {"transaction_features": True})
+    build(lake_settings(root), {"transaction_features": True}, scores=False)
     rel = duckdb.sql(
         f"SELECT * FROM read_parquet('{root}/gold/transaction_features/**/*.parquet',"
         " hive_partitioning = true)"
@@ -209,7 +209,7 @@ def test_customer_360_snapshot(tmp_path):
             },
         ],
     )
-    build(lake_settings(tmp_path), {"customer_360": False})
+    build(lake_settings(tmp_path), {"customer_360": False}, scores=False)
     rows = {r["customer_id"]: r for r in gold_rows(tmp_path, "customer_360")}
 
     c1, c2 = rows["c1"], rows["c2"]
@@ -288,7 +288,7 @@ def test_channel_costs_use_the_right_denominators(tmp_path):
             send("s5", "WhatsApp", None),  # cost unknown
         ],
     )
-    build(lake_settings(tmp_path), {"channel_costs": False})
+    build(lake_settings(tmp_path), {"channel_costs": False}, scores=False)
     rows = {r["channel"]: r for r in gold_rows(tmp_path, "channel_costs")}
 
     sms, wa = rows["SMS"], rows["WhatsApp"]
@@ -337,7 +337,7 @@ def test_service_cost_baseline_prices_minutes_and_flat_contacts(tmp_path):
             contact("i3", "Chat", "Queja"),  # flat 1.00
         ],
     )
-    build(lake_settings(tmp_path), {"service_cost_baseline": False})
+    build(lake_settings(tmp_path), {"service_cost_baseline": False}, scores=False)
     rows = {r["interaction_type"]: r for r in gold_rows(tmp_path, "service_cost_baseline")}
 
     calls, chat = rows["Inbound Call"], rows["Chat"]
@@ -395,7 +395,7 @@ def test_dispute_outcomes_one_row_per_complaint(tmp_path):
             },
         ],
     )
-    build(lake_settings(tmp_path), {"dispute_outcomes": False})
+    build(lake_settings(tmp_path), {"dispute_outcomes": False}, scores=False)
     rows = {r["complaint_id"]: r for r in gold_rows(tmp_path, "dispute_outcomes")}
 
     k1, k2 = rows["k1"], rows["k2"]
@@ -441,7 +441,7 @@ def test_agent_routing_languages_and_measured_performance(tmp_path):
         "process_date": "2025-01-01",
     }
     write_silver(tmp_path, "call_center_interactions", [recent, old])
-    build(lake_settings(tmp_path), {"agent_routing": False})
+    build(lake_settings(tmp_path), {"agent_routing": False}, scores=False)
     rows = {r["agent_id"]: r for r in gold_rows(tmp_path, "agent_routing")}
 
     a1, a2 = rows["a1"], rows["a2"]
@@ -460,3 +460,41 @@ def test_every_registered_table_has_its_sql_file():
     from bianque.pipeline.gold import GOLD_TABLES
 
     assert {p.stem for p in Path("sql/gold").glob("*.sql")} == set(GOLD_TABLES)
+
+
+def test_transaction_scores_calibrate_on_train_only(tmp_path):
+    from datetime import date
+
+    from bianque.models.baselines import PRIOR_WEIGHT
+
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_customer_and_product(tmp_path)
+
+    def scored(tid, ts, score, fraud):
+        return {**tx(tid, ts, 100, fraud=fraud), "fraud_score": score}
+
+    train = [scored(f"tr{i}", "2025-01-01 10:00:00", 12.0, False) for i in range(90)]
+    train += [scored("trf", "2025-01-02 10:00:00", 12.0, True)]  # bin [10, 15): 1 of 91
+    train += [scored("trn", "2025-01-03 10:00:00", None, False)]  # no score
+    test = [scored("te1", "2026-01-05 10:00:00", 13.0, True)]  # test fraud in the same bin
+    write_silver(tmp_path, "transactions", train + test)
+
+    settings = lake_settings(tmp_path, eval_train_end=date(2025, 7, 1))
+    counts = build(settings, {}, scores=True)
+    assert counts["transaction_scores"] == 93
+
+    cal = {r["score_bin"]: r for r in gold_rows(tmp_path, "score_calibration")}
+    base = 1 / 92  # train fraud rate
+    assert (cal[2]["n_train"], cal[2]["n_fraud_train"]) == (91, 1)  # te1 not counted
+    assert round(cal[2]["p_fraud"], 6) == round((1 + PRIOR_WEIGHT * base) / (91 + PRIOR_WEIGHT), 6)
+
+    rows = duckdb.sql(
+        "SELECT transaction_id, p_fraud, model_version, is_out_of_sample FROM read_parquet("
+        f"'{tmp_path}/gold/transaction_scores/**/*.parquet', hive_partitioning = true)"
+    ).fetchall()
+    scores = {r[0]: r for r in rows}
+    assert scores["te1"][1] == cal[2]["p_fraud"]  # scored with the train calibration
+    assert scores["te1"][2:] == ("baseline_fraud_score_v1", True)
+    assert scores["tr0"][3] is False
+    assert scores["trn"][1] == cal[None]["p_fraud"]  # unscored bin

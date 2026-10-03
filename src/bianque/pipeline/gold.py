@@ -16,6 +16,7 @@ import duckdb
 import yaml
 
 from bianque.config import Settings, load_settings
+from bianque.models.baselines import build_transaction_scores
 from bianque.pipeline.silver import connect, lit, q, write_parquet
 
 log = logging.getLogger("gold")
@@ -87,7 +88,9 @@ def build_sql_table(
     return con.execute(f"SELECT count(*) FROM {q(name)}").fetchone()[0]
 
 
-def build(settings: Settings, tables: dict[str, bool] = GOLD_TABLES) -> dict[str, int]:
+def build(
+    settings: Settings, tables: dict[str, bool] = GOLD_TABLES, scores: bool = True
+) -> dict[str, int]:
     con = connect(settings)
     silver = register_layer(con, settings.silver_root)
     if not silver:
@@ -97,6 +100,9 @@ def build(settings: Settings, tables: dict[str, bool] = GOLD_TABLES) -> dict[str
     for name, partitioned in tables.items():
         counts[name] = build_sql_table(con, settings, name, partitioned)
         log.info("%-22s rows=%10d", name, counts[name])
+    if scores:
+        counts["transaction_scores"] = build_transaction_scores(con, settings)
+        log.info("%-22s rows=%10d", "transaction_scores", counts["transaction_scores"])
     return counts
 
 
