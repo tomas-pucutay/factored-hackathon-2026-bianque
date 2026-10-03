@@ -292,6 +292,21 @@ A foreign key can exist in the parent table and still be wrong: it can point to 
 The two broken links pass the FK check (the product exists) but are random with respect to the
 customer, like the orphaned branch keys of §3.
 
+### Registration and opening dates are random with respect to activity
+
+`customers.registration_date` and `products.opening_date` are uniform between 2018-06-18 and
+2026-06-17 (~18.7k customers per year) and contradict the activity data:
+
+| Check | Result |
+|-------|--------|
+| Customers whose first transaction is before their registration | 48,469 of 134,515 (36%), median 525 days early |
+| Products opened before their owner registered | 199,596 of 400,000 (50%) |
+| Products opened in 2023 or later with transactions before the opening date | 117,640 of 172,943 (68%) |
+| Transactions before the customer's registration / the product's opening | 829,540 / 827,610 (19%) |
+
+Gold does not compute tenure from these dates; it uses observed tenure (days since the
+customer's first transaction before the current one).
+
 ### Complaints are not linked to transactions
 
 Tested to build `dispute_cases`:
