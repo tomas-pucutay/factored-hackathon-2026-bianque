@@ -1,0 +1,2 @@
+branch_id,branch_code,branch_name,branch_type,address,city,state,country,postal_code,geographic_zone,phone,email,opening_time,closing_time,has_atms,atm_count,has_teller_windows,teller_window_count,latitude,longitude,branch_opening_date,branch_status
+SUC-FIX00001,F0001,Sucursal Ficticia Centro,Main,Calle Ficticia 1,Bogotá,Cundinamarca,Colombia,110111,Urbana,+57 1 000 0000,fixture@example.com,08:00:00,17:00:00,True,2,True,4,4.6097100,-74.0817500,2000-01-01,Active

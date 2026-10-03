@@ -1,0 +1,3 @@
+product_id,customer_id,product_type,product_number,currency,current_balance,credit_limit,interest_rate,opening_date,expiration_date,opening_branch_id,product_status,opening_channel,has_linked_app,days_past_due,last_transaction_date,last_updated
+PRD-FIX0000001,CLI-FIX0000001,Tarjeta Crédito,4000000000000001,COP,1000000.00,5000000.00,24.50,2022-01-01,2027-01-01,SUC-FIX00001,Active,Branch,True,0.0,2026-06-16 10:00:00,2026-06-16 10:00:00
+PRD-FIX0000002,CLI-FIX0000002,Cuenta Ahorro,4000000000000002,ARS,50000.00,,1.00,2022-01-01,,SUC-FIX00001,Active,App,True,,2026-06-16 11:00:00,2026-06-16 11:00:00
