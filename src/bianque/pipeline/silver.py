@@ -1,15 +1,24 @@
 """Silver layer: bronze Parquet -> typed, validated, deduplicated <LAKE_ROOT>/silver Parquet.
 
 Every step is driven by the table's contract in contracts/<table>.yaml.
+
+Usage:
+  python -m bianque.pipeline.silver                     # all tables, parents first
+  python -m bianque.pipeline.silver --table customers   # one or more tables
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
 
 import duckdb
 
-from bianque.pipeline.contracts import Column, Contract
+from bianque.config import Settings, load_settings
+from bianque.pipeline.contracts import Column, Contract, build_order, load_contracts
 
 log = logging.getLogger("silver")
 
@@ -59,6 +68,8 @@ def lit(value: object) -> str:
         return "TRUE" if value else "FALSE"
     if isinstance(value, int | float):
         return str(value)
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(lit(v) for v in value) + "]"
     return "'" + str(value).replace("'", "''") + "'"
 
 
@@ -121,3 +132,115 @@ def typed_select(contract: Contract, source: str, extra_columns: list[str] = ())
     selects += [q(c) for c in LINEAGE]
     errors = f"list_filter([{', '.join(checks)}]::VARCHAR[], e -> e IS NOT NULL)"
     return f"SELECT {', '.join(selects)}, {errors} AS _errors FROM {source}"
+
+
+@dataclass
+class TableResult:
+    table: str
+    rows_in: int = 0
+    quarantined: int = 0
+    rows_out: int = 0
+
+
+def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
+    tmp = settings.lake_root / "_tmp" / "duckdb"
+    tmp.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit = {lit(settings.duckdb_memory_limit)}")
+    con.execute(f"SET threads = {settings.duckdb_threads}")
+    con.execute(f"SET temp_directory = {lit(str(tmp))}")
+    con.execute("SET preserve_insertion_order = false")
+    return con
+
+
+def bronze_files(settings: Settings, table: str) -> list[str]:
+    return sorted(str(p) for p in (settings.bronze_root / table).rglob("*.parquet"))
+
+
+def write_parquet(
+    con: duckdb.DuckDBPyConnection, query: str, out: Path, partition: str | None
+) -> None:
+    """Write a query to a Parquet folder, replacing the old one only after success."""
+    tmp = out.with_name(out.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    if partition:
+        opts = f"FORMAT parquet, COMPRESSION zstd, PARTITION_BY ({q(partition)})"
+        con.execute(f"COPY ({query}) TO {lit(str(tmp))} ({opts})")
+    else:
+        tmp.mkdir()
+        con.execute(
+            f"COPY ({query}) TO {lit(str(tmp / 'data.parquet'))} (FORMAT parquet, COMPRESSION zstd)"
+        )
+    old = out.with_name(out.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if out.exists():
+        out.rename(old)
+    tmp.rename(out)
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def build_table(
+    con: duckdb.DuckDBPyConnection, settings: Settings, contract: Contract
+) -> TableResult:
+    t = contract.table
+    result = TableResult(t)
+    files = bronze_files(settings, t)
+    if not files:
+        raise FileNotFoundError(f"{t}: no bronze files under {settings.bronze_root / t}")
+    extra = compare_schema(contract, file_columns(con, files))
+    source = f"read_parquet({lit(files)}, union_by_name = true, hive_partitioning = false)"
+
+    con.execute(f"CREATE OR REPLACE TEMP TABLE staged AS {typed_select(contract, source, extra)}")
+    result.rows_in = con.execute("SELECT count(*) FROM staged").fetchone()[0]
+
+    # Rows that cannot be typed or miss a required value: kept aside with the reason.
+    result.quarantined = con.execute(
+        "SELECT count(*) FROM staged WHERE len(_errors) > 0"
+    ).fetchone()[0]
+    quarantine_dir = settings.silver_root / "_quarantine" / t
+    if result.quarantined:
+        write_parquet(
+            con,
+            "SELECT * EXCLUDE (_errors), array_to_string(_errors, '; ') AS _reason "
+            "FROM staged WHERE len(_errors) > 0",
+            quarantine_dir,
+            None,
+        )
+    else:
+        shutil.rmtree(quarantine_dir, ignore_errors=True)
+    con.execute(
+        "CREATE OR REPLACE TEMP VIEW valid AS SELECT * EXCLUDE (_errors) FROM staged WHERE len(_errors) = 0"
+    )
+
+    final = "valid"
+    write_parquet(
+        con, f"SELECT * FROM {final}", settings.silver_root / t, contract.partition_column
+    )
+    result.rows_out = con.execute(f"SELECT count(*) FROM {final}").fetchone()[0]
+    con.execute("DROP TABLE staged")
+    return result
+
+
+def main(tables: list[str] | None = None) -> list[TableResult]:
+    settings = load_settings()
+    contracts = load_contracts(settings.contracts_dir)
+    order = [t for t in build_order(contracts) if not tables or t in tables]
+    unknown = set(tables or []) - set(contracts)
+    if unknown:
+        raise SystemExit(f"Unknown tables: {sorted(unknown)}")
+    con = connect(settings)
+    results = []
+    for t in order:
+        r = build_table(con, settings, contracts[t])
+        log.info("%-26s in=%10d quarantined=%8d out=%10d", t, r.rows_in, r.quarantined, r.rows_out)
+        results.append(r)
+    return results
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--table", action="append", help="build only this table (repeatable)")
+    args = parser.parse_args()
+    main(args.table)

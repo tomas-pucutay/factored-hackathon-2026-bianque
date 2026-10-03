@@ -89,3 +89,55 @@ def test_file_columns_reads_parquet_metadata(tmp_path):
     path = str(tmp_path / "f.parquet")
     con.execute(f"COPY (SELECT 1 AS a, 'x' AS b) TO '{path}' (FORMAT parquet)")
     assert file_columns(con, [path]) == {path: {"a", "b"}}
+
+
+def make_settings(root):
+    from datetime import date
+    from pathlib import Path
+
+    from bianque.config import Settings
+
+    return Settings(
+        lake_root=Path(root),
+        contracts_dir=Path("contracts"),
+        silver_sql_dir=Path("sql/silver"),
+        late_arrival_days=7,
+        age_reference_date=date(2026, 6, 17),
+        age_band_edges=(18, 25, 35, 45, 55, 65),
+        duckdb_memory_limit="1GB",
+        duckdb_threads=2,
+    )
+
+
+def write_bronze(root, table, name, rows, columns):
+    from pathlib import Path
+
+    import pandas as pd
+
+    out = Path(root) / "bronze" / table / f"{name}.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(rows, columns=columns, dtype="string")
+    df["_source_key"] = f"data/{table}/{name}.csv"
+    df["_source_etag"] = name
+    df["_ingested_at"] = pd.Timestamp("2026-10-01", tz="UTC")
+    df.to_parquet(out, index=False)
+
+
+def test_build_table_writes_valid_rows_and_quarantines_bad_ones(tmp_path):
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    cols = ["id", "score", "amount", "active", "country", "langs"]
+    write_bronze(tmp_path, "t", "f1", [("a", "1.0", "2.50", "True", "México", "español")], cols)
+    write_bronze(tmp_path, "t", "f2", [("b", "oops", None, None, None, None)], cols)
+
+    con = connect(settings)
+    result = build_table(con, settings, CONTRACT)
+
+    assert (result.rows_in, result.quarantined, result.rows_out) == (2, 1, 1)
+    silver = con.sql(f"SELECT id, country FROM '{tmp_path}/silver/t/*.parquet'").fetchall()
+    assert silver == [("a", "Mexico")]
+    reason = con.sql(
+        f"SELECT id, _reason FROM '{tmp_path}/silver/_quarantine/t/*.parquet'"
+    ).fetchall()
+    assert reason == [("b", "cast:score")]
