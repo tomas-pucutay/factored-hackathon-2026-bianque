@@ -4,8 +4,8 @@ Writes gold.transaction_scores (one row per transaction) and gold.score_calibrat
 bins behind every probability, for the audit trail). The trained model will write its own
 model_version into the same table; the proactive scan reads it.
 
-Calibration is histogram binning fitted on the train split only (transaction_date before
-settings.eval_train_end), so validation and test scores are out of sample:
+Calibration is histogram binning fitted on the train split only (process_date before
+settings.eval_train_end, the same split as the frozen evaluation sets), so validation and test scores are out of sample:
   p(bin) = (frauds_in_bin + PRIOR_WEIGHT * base_rate) / (transactions_in_bin + PRIOR_WEIGHT)
 The prior keeps sparse bins from jumping to 0 or 1. Transactions without a fraud_score
 (20% of rows) get the rate observed among unscored train transactions.
@@ -35,7 +35,7 @@ def calibration_sql(train_end: str) -> str:
                 END AS score_bin,
                 is_fraud
             FROM transactions
-            WHERE transaction_date < DATE {lit(train_end)}
+            WHERE process_date < DATE {lit(train_end)}
         ),
         base AS (SELECT avg(is_fraud::INTEGER) AS base_rate FROM train)
         SELECT
@@ -63,10 +63,10 @@ def scores_sql(train_end: str, scored_at: str) -> str:
             t.amount_usd,
             t.fraud_score AS raw_score,
             coalesce(c.p_fraud, (SELECT avg(is_fraud::INTEGER) FROM transactions
-                                 WHERE transaction_date < DATE {lit(train_end)})) AS p_fraud,
+                                 WHERE process_date < DATE {lit(train_end)})) AS p_fraud,
             c.model_version,
             TIMESTAMPTZ {lit(scored_at)} AS scored_at,
-            t.transaction_date >= DATE {lit(train_end)} AS is_out_of_sample,
+            t.process_date >= DATE {lit(train_end)} AS is_out_of_sample,
             t.process_month
         FROM transactions AS t
         LEFT JOIN score_calibration AS c ON c.score_bin IS NOT DISTINCT FROM

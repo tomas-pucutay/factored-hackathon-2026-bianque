@@ -28,6 +28,7 @@ class Settings:
     cost_assumptions: Path = Path("policies/cost_assumptions_v1.yaml")
     eval_train_end: date = date(2025, 7, 1)
     eval_validation_end: date = date(2026, 1, 1)
+    eval_test_end: date = date(2026, 6, 18)
     serving_customers: int = 300
 
     @property
@@ -65,6 +66,7 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
         cost_assumptions=Path(raw["cost_assumptions"]),
         eval_train_end=date.fromisoformat(gold["train_end"]),
         eval_validation_end=date.fromisoformat(gold["validation_end"]),
+        eval_test_end=date.fromisoformat(gold["test_end"]),
         serving_customers=int(gold["serving_customers"]),
     )
 

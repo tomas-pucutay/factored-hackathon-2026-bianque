@@ -19,10 +19,12 @@ silver:
   age_band_edges: [18, 25, 35, 45, 55, 65]
 
 gold:
-  # Out-of-time split for the frozen evaluation sets, on transaction_date:
-  # train < train_end <= validation < validation_end <= test.
+  # Out-of-time split on process_date (the business day; see docs/silver_data_findings.md):
+  # train < train_end <= validation < validation_end <= test < test_end.
+  # test_end is fixed so new data never changes the frozen test set.
   train_end: "2025-07-01"
   validation_end: "2026-01-01"
+  test_end: "2026-06-18"
   # Customers in the serving slice shipped with the deployed app.
   serving_customers: 300
 
