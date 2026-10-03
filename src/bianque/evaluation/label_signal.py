@@ -180,6 +180,35 @@ def fraud_checks(settings: Settings) -> None:
         print(f"| {f} | {g:+.4f} |")
 
 
+def score_ceiling(settings: Settings) -> None:
+    """How far can any ranking of these transactions go?
+
+    Legitimate scores never exceed LEGIT_MAX, so frauds above it are perfectly separable;
+    frauds at or below it have the same score distribution as legitimate transactions, so no
+    ranking does better than chance on them. On scored rows the best ROC-AUC is then
+    separable + (1 - separable) / 2, and fraud_score already ranks in that optimal order.
+    """
+    con = connect(settings)
+    rows = con.sql(f"""
+        SELECT {split_case(settings)} AS split,
+               max(source_fraud_score) FILTER (NOT is_fraud) AS legit_max,
+               count(*) FILTER (is_fraud AND source_fraud_score IS NOT NULL) AS scored_frauds,
+               avg((source_fraud_score > (SELECT max(source_fraud_score) FILTER (NOT is_fraud)
+                   FROM read_parquet('{settings.gold_root}/transaction_features/**/*.parquet')))::INT)
+                   FILTER (is_fraud AND source_fraud_score IS NOT NULL) AS separable
+        FROM read_parquet('{settings.gold_root}/transaction_features/**/*.parquet',
+                          hive_partitioning = true)
+        WHERE process_date >= DATE '{settings.eval_train_end}'
+          AND process_date < DATE '{settings.eval_test_end}'
+        GROUP BY 1 ORDER BY 1 DESC
+    """).fetchall()
+    print("\n## Ceiling of any ranking (scored rows)\n")
+    print("| Split | Max legitimate score | Scored frauds | Separable (above it) "
+          "| ROC-AUC ceiling |\n|---|---:|---:|---:|---:|")  # fmt: skip
+    for split, legit_max, frauds, sep in rows:
+        print(f"| {split} | {legit_max} | {frauds} | {sep:.3f} | {sep + (1 - sep) / 2:.4f} |")
+
+
 def intent_label_check(settings: Settings) -> None:
     con = connect(settings)
     silver = settings.silver_root
@@ -210,6 +239,7 @@ def main() -> None:
     settings = load_settings()
     start = time.monotonic()
     fraud_checks(settings)
+    score_ceiling(settings)
     intent_label_check(settings)
     print(f"\n_Run time: {time.monotonic() - start:.0f} s_")
 
