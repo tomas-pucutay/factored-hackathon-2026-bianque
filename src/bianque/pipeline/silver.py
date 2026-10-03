@@ -280,10 +280,11 @@ def apply_table_sql(
             con.execute(
                 f"CREATE OR REPLACE TEMP VIEW {q(parent)} AS SELECT * FROM {silver_relation(settings, parent)}"
             )
+    if source != "input":
+        con.execute(f"CREATE OR REPLACE TEMP VIEW input AS SELECT * FROM {source}")
+    # A view named `input` (not a CTE wrapper), so the file can define its own WITH clauses.
     sql = path.read_text().strip().rstrip(";")
-    con.execute(
-        f"CREATE OR REPLACE TEMP VIEW {out} AS WITH input AS (SELECT * FROM {source}) {sql}"
-    )
+    con.execute(f"CREATE OR REPLACE TEMP VIEW {out} AS {sql}")
     got = [r[0] for r in con.execute(f"DESCRIBE {out}").fetchall()]
     expected = [r[0] for r in con.execute(f"DESCRIBE {source}").fetchall()] + list(contract.derived)
     if sorted(got) != sorted(expected):

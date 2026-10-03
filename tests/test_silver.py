@@ -242,7 +242,9 @@ def test_table_sql_adds_derived_columns_and_is_checked(tmp_path):
     write_bronze(tmp_path, "t", "f", [("a", "3.0", None, None, None, None)], cols)
     con = connect(settings)
 
-    (sql_dir / "t.sql").write_text("SELECT *, score * 2 AS score_x2 FROM input;")
+    (sql_dir / "t.sql").write_text(
+        "WITH k AS (SELECT 2 AS f) SELECT input.*, score * k.f AS score_x2 FROM input, k;"
+    )
     build_table(con, settings, contract)
     assert con.sql(f"SELECT score_x2 FROM '{tmp_path}/silver/t/*.parquet'").fetchall() == [(6,)]
 
