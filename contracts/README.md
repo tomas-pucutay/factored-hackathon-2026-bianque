@@ -23,6 +23,9 @@ columns:
   amount: {type: "DECIMAL(15,2)", nullable: false, range: [0, null]}
   channel: {type: VARCHAR, allowed: [ATM, App, Branch]}
   languages: {type: "VARCHAR[]", split: ", ", allowed: [en, es, pt]}  # list column
+  credit_limit:                # structural NULL: must be NULL when any condition holds
+    type: "DECIMAL(15,2)"
+    null_when: [{product_type: [Cuenta Ahorro, Seguro]}, {product_status: [Closed]}]
 
 value_map:                     # normalizations applied before checks, only where observed
   country: {México: Mexico}
@@ -39,6 +42,9 @@ pii:
 ```
 
 - `nullable` defaults to `true`. `range` bounds are inclusive; `null` means open-ended.
+- `null_when` lists conditions (OR between list items) where the value does not apply and
+  must be NULL; a non-NULL there is a quality failure. Outside those conditions a NULL is
+  missing data and is reported. `null` inside a condition matches NULL values.
 - `split` turns a delimited text column into a list; `allowed` then applies to each element.
 - `value_map` is only added for variants actually observed in bronze, not speculatively.
 - `allowed` and `range` are quality checks. Type casts and `nullable: false` are hard rules.
@@ -75,8 +81,20 @@ Observed in bronze on 2026-10-03:
 - `campaign_sends.subject` contains `"¡Oferta especial en nan!"` in 38,142 rows, a pandas NaN
   leaked from campaigns without a promoted product; it becomes NULL. A scan of every text
   column in all tables found no other leaked placeholders, blank strings or stray whitespace.
+- NULLs come in two layers: structural (the field does not apply, e.g. `credit_limit` on a
+  savings account, `browser` on an app event, `resolution_date` on an open complaint) and
+  random on top of that, ~5% in most columns as the dictionary states. Structural rules are
+  encoded with `null_when` and were checked against every row in bronze.
 - `campaign_sends.was_opened` is NULL by design for undelivered sends and for Voice and
   WhatsApp, which have no open tracking; it is not coerced to false.
+- `call_center_interactions.duration_seconds` is NULL for Chat and Email, and
+  `wait_time_seconds` exists only for Inbound Call. `call_transcripts.duration_seconds` is a
+  copy of the interaction's, so it is NULL for chat and email transcripts.
+- `transactions.amount_usd` is NULL for every USD transaction (plus ~5% random elsewhere);
+  silver sets it to `amount` for USD and converts the rest with `daily_exchange_rates`.
+- `digital_events` rows with `ip_country = 'Mexico'` (no accent, 1.04M rows) are anonymous
+  traffic with no `customer_id` and no `ip_city`; after normalization they are identified by
+  `customer_id IS NULL`.
 - `daily_exchange_rates` covers all 12 currency pairs per day (13,164 rows, not 3,000).
 - Mexican customers' products are all in USD; there are no MXN products or transactions.
 - `complaints.origin_interaction_id` is 100% null.
