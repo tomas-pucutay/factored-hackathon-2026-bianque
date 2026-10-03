@@ -1,7 +1,7 @@
 # factored-hackathon-2026-bianque
 The best complaint is the one that never arrives. Proactive AI customer service for LATAM banking. It scores card charges for fraud, contacts customers only when expected loss outweighs channel cost, and resolves disputes in Spanish and Portuguese with verified actions and safe human handoff.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet) and silver (contracts, quarantine, dedupe, keys, PII, late arrivals) layers are implemented and tested. Gold, quality report, model and API are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, baseline scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested. Quality report, trained model and API are not implemented yet.
 
 ## Requirements
 
@@ -103,6 +103,32 @@ Results on the real data: 23.5M rows, 0 quarantined, 0 duplicates, 150,826 orpha
 
 Design decisions and their rationale: [`docs/silver_design.md`](docs/silver_design.md).
 
+### Gold: what the proactive loop needs
+
+```bash
+make gold                                            # rebuild gold, verify frozen eval sets
+uv run python -m bianque.pipeline.gold --refreeze    # accept an intended change to eval sets
+```
+
+Bianque contacts a customer only when `p_fraud × amount_usd > channel cost + friction for a legitimate customer`. Gold provides every term of that rule and what the agent needs afterwards:
+
+| Output | Used for |
+|--------|----------|
+| `transaction_features` | Point-in-time fraud features: only information strictly before each transaction |
+| `transaction_scores` | What the proactive scan reads: calibrated `p_fraud`, model version, timestamp (baseline: the bank's `fraud_score`, calibrated on train) |
+| `channel_costs` | Cost, delivery and response per channel |
+| `customer_360` | Agent context, fairness breakdowns, the app (snapshot, no labels) |
+| `agent_routing` | Handoff by language and specialty, with measured performance |
+| `dispute_outcomes` | What a complaint costs when it does arrive (ROI value side) |
+| `service_cost_baseline` | Status-quo service cost (ROI baseline) |
+| `serving/serving.duckdb` | 300-customer slice the deployed API reads, without labels |
+
+Frozen out-of-time evaluation sets live in [`eval/`](eval/README.md), with their SHA-256 in a committed manifest; every gold run verifies them. Costs that the data does not contain are **synthetic, versioned assumptions** in [`policies/`](policies/README.md).
+
+Key finding: the only fraud signal in this dataset is the bank's own `fraud_score`; behavioral features show no difference between fraud and non-fraud, so the calibrated baseline is the bar any model has to clear.
+
+Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.md).
+
 ## Documentation
 
 Design decisions are documented with their evidence and the alternatives that were rejected:
@@ -111,9 +137,12 @@ Design decisions are documented with their evidence and the alternatives that we
 |----------|-------------|
 | [`docs/bronze_design.md`](docs/bronze_design.md) | How bronze works and why: ingestion, idempotency, layout, failure handling |
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
-| [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, quirks) |
+| [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
+| [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
 | [`contracts/README.md`](contracts/README.md) | The schema contract format |
 | [`fixtures/README.md`](fixtures/README.md) | Team-generated synthetic test data and what it covers |
+| [`policies/README.md`](policies/README.md) | Synthetic, versioned assumptions (costs) |
+| [`eval/README.md`](eval/README.md) | Frozen evaluation sets and leakage controls |
 
 ## Development
 
@@ -129,9 +158,9 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 
 | Step | Command | What it does |
 |------|---------|--------------|
-| Data | `make pipeline` | bronze (done) → silver (done) → gold → quality report |
+| Data | `make pipeline` | bronze (done) → silver (done) → gold (done) → quality report |
 | Model | `make train` | train fraud model and log to MLflow |
 | Eval | `make evaluate` | compare contact policies and run agent evaluation |
 | Serve | `make serve` | run the FastAPI app locally |
 
-Gold, quality, model, evaluation and serving modules are still to be written. Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report, model training, evaluation and serving modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
