@@ -498,3 +498,27 @@ def test_transaction_scores_calibrate_on_train_only(tmp_path):
     assert scores["te1"][2:] == ("baseline_fraud_score_v1", True)
     assert scores["tr0"][3] is False
     assert scores["trn"][1] == cal[None]["p_fraud"]  # unscored bin
+
+
+def test_unseen_score_bins_take_the_nearest_observed_bin(tmp_path):
+    from datetime import date
+
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_customer_and_product(tmp_path)
+    rows = [
+        {**tx(f"f{i}", "2025-01-01 10:00:00", 1, fraud=True), "fraud_score": 52.0} for i in range(4)
+    ]
+    rows += [{**tx(f"n{i}", "2025-01-01 11:00:00", 1), "fraud_score": 3.0} for i in range(40)]
+    rows += [{**tx("new_high", "2026-01-01 10:00:00", 1), "fraud_score": 97.0}]  # bin 19, unseen
+    write_silver(tmp_path, "transactions", rows)
+    build(lake_settings(tmp_path, eval_train_end=date(2025, 7, 1)), {}, scores=True)
+
+    cal = {r["score_bin"]: r for r in gold_rows(tmp_path, "score_calibration")}
+    assert len(cal) == 21  # 20 bins + no score
+    assert (cal[19]["is_filled"], cal[19]["p_fraud"]) == (
+        True,
+        cal[10]["p_fraud"],
+    )  # nearest: bin 10
+    assert cal[10]["is_filled"] is False and cal[10]["p_fraud"] > 0.5
+    assert cal[1]["p_fraud"] == cal[0]["p_fraud"]  # filled from the nearest lower bin on ties
