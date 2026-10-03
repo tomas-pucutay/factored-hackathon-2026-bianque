@@ -3,12 +3,17 @@
 Each table is a portable SQL file in sql/gold/<table>.sql that reads silver tables by name
 (and gold tables built before it). Outputs go to <LAKE_ROOT>/gold/<table>/.
 
+After the tables, it builds the baseline transaction_scores and the serving slice, then
+verifies the frozen evaluation sets in eval/frozen/ against their recorded hashes.
+
 Usage:
-  python -m bianque.pipeline.gold
+  python -m bianque.pipeline.gold              # build gold, verify the frozen eval sets
+  python -m bianque.pipeline.gold --refreeze   # accept changed eval sets, rewrite the manifest
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 from pathlib import Path
 
@@ -16,6 +21,7 @@ import duckdb
 import yaml
 
 from bianque.config import Settings, load_settings
+from bianque.evaluation.frozen_sets import freeze
 from bianque.models.baselines import build_transaction_scores
 from bianque.pipeline.serving import build_serving_slice
 from bianque.pipeline.silver import connect, lit, q, write_parquet
@@ -116,10 +122,24 @@ def build(
     return counts
 
 
-def main() -> None:
-    build(load_settings())
+def main(refreeze: bool = False) -> None:
+    settings = load_settings()
+    build(settings)
+    manifest = freeze(settings, refreeze)
+    for name, info in manifest["sets"].items():
+        log.info(
+            "frozen %-16s rows=%8d fraud=%5d sha256=%s…",
+            name,
+            info["rows"],
+            info["fraud_rows"],
+            info["sha256"][:12],
+        )
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    main()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--refreeze", action="store_true", help="accept changed eval sets and rewrite the manifest"
+    )
+    main(parser.parse_args().refreeze)
