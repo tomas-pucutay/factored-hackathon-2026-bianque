@@ -1,0 +1,49 @@
+table: customers
+kind: dimension
+description: Bank customers (core banking, monthly snapshot)
+primary_key: [customer_id]
+dedupe_order: [last_updated DESC, _ingested_at DESC, _source_key DESC]
+
+columns:
+  customer_id: {type: VARCHAR, nullable: false}
+  document_number: {type: VARCHAR, nullable: false}
+  document_type: {type: VARCHAR, nullable: false, allowed: [CC, CE, CURP, DNI, Pasaporte]}
+  first_name: {type: VARCHAR, nullable: false}
+  last_name: {type: VARCHAR, nullable: false}
+  date_of_birth: {type: DATE, nullable: false}
+  gender: {type: VARCHAR, allowed: [F, M, O]}
+  email: {type: VARCHAR}
+  mobile_phone: {type: VARCHAR}
+  landline_phone: {type: VARCHAR}
+  address: {type: VARCHAR}
+  city: {type: VARCHAR, nullable: false}
+  state: {type: VARCHAR, nullable: false}
+  country: {type: VARCHAR, nullable: false, allowed: [Argentina, Colombia, Mexico]}
+  postal_code: {type: VARCHAR}
+  detected_accent: {type: VARCHAR, allowed: [argentine, colombian, mexican, neutral]}
+  segment: {type: VARCHAR, nullable: false, allowed: [Basic, Plus, Premium, Student]}
+  credit_score: {type: INTEGER, range: [300, 850]}
+  estimated_monthly_income: {type: "DECIMAL(12,2)", range: [0, null]}
+  occupation: {type: VARCHAR}
+  marital_status: {type: VARCHAR, allowed: [Divorced, Married, Single, Widowed]}
+  education_level:
+    type: VARCHAR
+    allowed: [College Prep, Elementary, Graduate, High School, University]
+  registration_date: {type: TIMESTAMP, nullable: false}
+  # NOT NULL in the dictionary, but the source values are random IDs (see foreign_keys).
+  registration_branch_id: {type: VARCHAR}
+  customer_status: {type: VARCHAR, nullable: false, allowed: [Active, Closed, Inactive, Suspended]}
+  last_updated: {type: TIMESTAMP, nullable: false}
+  accepts_marketing: {type: BOOLEAN, nullable: false}
+
+value_map:
+  country: {México: Mexico}
+
+foreign_keys:
+  # 149,995 of 150,000 values match no branch: unique per customer, 5-6 edits away from
+  # any real branch_id. Not repairable, so they are set to NULL instead of quarantining rows.
+  - {column: registration_branch_id, references: branches.branch_id, on_orphan: nullify}
+
+pii:
+  hash: [document_number, first_name, last_name, email, mobile_phone, landline_phone, address]
+  age_band: [date_of_birth]

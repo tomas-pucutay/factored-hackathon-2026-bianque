@@ -1,0 +1,32 @@
+table: branches
+kind: dimension
+description: Physical bank branches (internal, full snapshot)
+primary_key: [branch_id]
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  branch_id: {type: VARCHAR, nullable: false}
+  branch_code: {type: VARCHAR, nullable: false}
+  branch_name: {type: VARCHAR, nullable: false}
+  branch_type: {type: VARCHAR, nullable: false, allowed: [Corporate, Express, Main, Premium]}
+  address: {type: VARCHAR, nullable: false}
+  city: {type: VARCHAR, nullable: false}
+  state: {type: VARCHAR, nullable: false}
+  country: {type: VARCHAR, nullable: false, allowed: [Argentina, Colombia, Mexico]}
+  postal_code: {type: VARCHAR}
+  geographic_zone: {type: VARCHAR, nullable: false, allowed: [Rural, Suburbana, Urbana]}
+  phone: {type: VARCHAR, nullable: false}
+  email: {type: VARCHAR}
+  opening_time: {type: TIME, nullable: false}
+  closing_time: {type: TIME, nullable: false}
+  has_atms: {type: BOOLEAN, nullable: false}
+  atm_count: {type: INTEGER, range: [0, null]}
+  has_teller_windows: {type: BOOLEAN, nullable: false}
+  teller_window_count: {type: INTEGER, range: [0, null]}
+  latitude: {type: "DECIMAL(10,7)", range: [-90, 90]}
+  longitude: {type: "DECIMAL(10,7)", range: [-180, 180]}
+  branch_opening_date: {type: DATE, nullable: false}
+  branch_status: {type: VARCHAR, nullable: false, allowed: [Active, Closed, Temporarily Closed]}
+
+value_map:
+  country: {México: Mexico}

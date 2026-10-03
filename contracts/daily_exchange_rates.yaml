@@ -1,0 +1,14 @@
+table: daily_exchange_rates
+kind: reference
+description: Daily exchange rates for every pair of ARS, COP, MXN and USD
+primary_key: [date, source_currency, target_currency]
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  date: {type: DATE, nullable: false}
+  source_currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
+  target_currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
+  exchange_rate: {type: "DECIMAL(12,6)", nullable: false, range: [0, null]}
+  buy_rate: {type: "DECIMAL(12,6)", range: [0, null]}
+  sell_rate: {type: "DECIMAL(12,6)", range: [0, null]}
+  source: {type: VARCHAR, allowed: [Bloomberg, Central Bank, Internal, Reuters]}

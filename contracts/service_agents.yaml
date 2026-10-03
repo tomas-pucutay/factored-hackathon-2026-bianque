@@ -1,0 +1,40 @@
+table: service_agents
+kind: dimension
+description: Customer service agents (internal, monthly snapshot)
+primary_key: [agent_id]
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  agent_id: {type: VARCHAR, nullable: false}
+  employee_code: {type: VARCHAR, nullable: false}
+  first_name: {type: VARCHAR, nullable: false}
+  last_name: {type: VARCHAR, nullable: false}
+  email: {type: VARCHAR, nullable: false}
+  phone: {type: VARCHAR}
+  native_accent: {type: VARCHAR, nullable: false, allowed: [argentine, colombian, mexican]}
+  country_of_origin: {type: VARCHAR, nullable: false, allowed: [Argentina, Colombia, Mexico]}
+  assigned_branch_id: {type: VARCHAR}
+  agent_type: {type: VARCHAR, nullable: false, allowed: [Digital, Hybrid, In-Person, Phone]}
+  experience_level:
+    type: VARCHAR
+    nullable: false
+    allowed: [Junior, Mid-Senior, Senior, Specialist]
+  # Source: "español, inglés, portugués" -> silver: [es, en, pt]. Used for handoff routing.
+  languages: {type: "VARCHAR[]", nullable: false, split: ", ", allowed: [en, es, pt]}
+  specialty: {type: VARCHAR}
+  hire_date: {type: DATE, nullable: false}
+  avg_csat: {type: "DECIMAL(3,2)", range: [1, 5]}
+  total_monthly_interactions: {type: INTEGER, range: [0, null]}
+  agent_status: {type: VARCHAR, nullable: false, allowed: [Active, Inactive, Leave, Vacation]}
+  work_shift: {type: VARCHAR, nullable: false, allowed: [Afternoon, Morning, Night, Rotating]}
+
+value_map:
+  languages: {español: es, inglés: en, portugués: pt}
+
+foreign_keys:
+  # 831 of 833 non-null values match no branch: unique per agent, random IDs.
+  # Not repairable, so they are set to NULL instead of quarantining rows.
+  - {column: assigned_branch_id, references: branches.branch_id, on_orphan: nullify}
+
+pii:
+  hash: [first_name, last_name, email, phone]

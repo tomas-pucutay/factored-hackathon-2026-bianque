@@ -1,0 +1,43 @@
+table: products
+kind: dimension
+description: Customers' financial products (core banking, monthly snapshot)
+primary_key: [product_id]
+dedupe_order: [last_updated DESC, _ingested_at DESC, _source_key DESC]
+
+columns:
+  product_id: {type: VARCHAR, nullable: false}
+  customer_id: {type: VARCHAR, nullable: false}
+  product_type:
+    type: VARCHAR
+    nullable: false
+    allowed:
+      - Cuenta Ahorro
+      - Cuenta Corriente
+      - Inversión
+      - Préstamo Hipotecario
+      - Préstamo Personal
+      - Seguro
+      - Tarjeta Crédito
+      - Tarjeta Débito
+  product_number: {type: VARCHAR, nullable: false}
+  currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
+  current_balance: {type: "DECIMAL(15,2)", nullable: false}
+  credit_limit: {type: "DECIMAL(15,2)", range: [0, null]}
+  interest_rate: {type: "DECIMAL(5,2)", range: [0, null]}
+  opening_date: {type: DATE, nullable: false}
+  expiration_date: {type: DATE}
+  opening_branch_id: {type: VARCHAR, nullable: false}
+  product_status: {type: VARCHAR, nullable: false, allowed: [Active, Blocked, Closed, Suspended]}
+  opening_channel: {type: VARCHAR, nullable: false, allowed: [App, Branch, Call Center, Web]}
+  has_linked_app: {type: BOOLEAN, nullable: false}
+  days_past_due: {type: INTEGER, range: [0, null]}
+  last_transaction_date: {type: TIMESTAMP}
+  last_updated: {type: TIMESTAMP, nullable: false}
+
+foreign_keys:
+  - {column: customer_id, references: customers.customer_id}
+  - {column: opening_branch_id, references: branches.branch_id}
+
+pii:
+  # Account / card number.
+  hash: [product_number]

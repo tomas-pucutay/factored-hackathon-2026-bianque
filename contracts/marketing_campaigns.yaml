@@ -1,0 +1,23 @@
+table: marketing_campaigns
+kind: dimension
+description: Bank marketing campaigns (internal, full snapshot)
+primary_key: [campaign_id]
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  campaign_id: {type: VARCHAR, nullable: false}
+  campaign_name: {type: VARCHAR, nullable: false}
+  description: {type: VARCHAR}
+  campaign_type: {type: VARCHAR, nullable: false, allowed: [Email, Mix, Push, SMS, Voice, WhatsApp]}
+  campaign_objective:
+    type: VARCHAR
+    nullable: false
+    allowed: [Acquisition, Cross-sell, Reactivation, Retention, Up-sell]
+  promoted_product: {type: VARCHAR}
+  target_segment: {type: VARCHAR, allowed: [Basic, Plus, Premium, Student]}
+  target_country: {type: VARCHAR, allowed: [Argentina, Colombia, Mexico]}
+  start_date: {type: DATE, nullable: false}
+  end_date: {type: DATE, nullable: false}
+  budget: {type: "DECIMAL(12,2)", range: [0, null]}
+  campaign_status: {type: VARCHAR, nullable: false, allowed: [Active, Completed, Paused, Planned]}
+  expected_conversion_rate: {type: "DECIMAL(5,2)", range: [0, 100]}
