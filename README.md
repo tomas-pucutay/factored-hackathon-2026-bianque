@@ -64,6 +64,17 @@ data/
     └── customers/customers.parquet
 ```
 
+### Silver: contracts (in progress)
+
+Each table has a schema contract in [`contracts/`](contracts/) (format in [`contracts/README.md`](contracts/README.md)): types, primary and foreign keys, allowed values, normalizations, list columns, structural NULL rules, process-day rules and PII columns. The contracts follow the data dictionary, corrected and validated against every row in bronze. The transformation code is not written yet.
+
+Read [`docs/silver_data_findings.md`](docs/silver_data_findings.md) before working on silver or gold. Highlights:
+
+- Two foreign keys (`customers.registration_branch_id`, `service_agents.assigned_branch_id`) are random IDs, not repairable; silver sets them to NULL instead of dropping rows.
+- `process_date` is a business day with a per-table cutoff (06:00 or 08:00, or inherited from the interaction); silver never recomputes it.
+- Many NULLs are structural (the field does not apply) on top of ~5% random NULLs; structural ones are never filled.
+- No duplicate primary keys exist, despite the documented ~2%.
+
 ## Development
 
 ```bash
