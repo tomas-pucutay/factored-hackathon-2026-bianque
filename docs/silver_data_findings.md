@@ -179,7 +179,7 @@ Structural NULLs are never filled or coerced (e.g. `was_opened` is not turned in
 
 | Column | NULL when | Random elsewhere |
 |--------|-----------|-----------------:|
-| `amount_usd` | `currency = USD` (silver fills it with `amount`) | 5% (silver converts) |
+| `amount_usd` | `currency = USD` (silver fills it with `amount`) | 5% (silver fills it with the booking rate, see §8) |
 | `transaction_category` | `transaction_type` in Adjustment, Deposit, Transfer, Withdrawal | 5% |
 | `merchant_name`, `merchant_category` | `transaction_type` is not Purchase | 5% |
 | `branch_id` | `channel` in App, POS, Transfer, Web | 5% |
@@ -262,6 +262,7 @@ These are treated as random missing data: e.g. `customers.landline_phone` (50%),
 | Table | Finding | Handling |
 |-------|---------|----------|
 | campaign_sends | `subject` = `"¡Oferta especial en nan!"` in 38,142 rows: campaigns without `promoted_product` leaked a pandas NaN into the text. The other 520,317 subjects match `"¡Oferta especial en <promoted_product>!"` exactly | Mapped to NULL (real subject unknown) |
+| transactions | `amount_usd` uses a fixed booking rate per currency, not `daily_exchange_rates`: `amount_usd / amount` is 1/350 for ARS and 1/4000 for COP in every quarter of 2023–2026, and that rate reproduces 99.87% (ARS) and 99.99% (COP) of source values to the cent (the rest differ by a rounding cent). No combination of `daily_exchange_rates` (calendar or process date; exchange, buy or sell rate; either direction) matches more than 6.2% exactly. The daily table fluctuates ±2% around the same 350 and 4,000 | NULLs filled with the booking rate measured from the source rows (`sql/silver/transactions.sql`), so every row uses one method; `amount_usd_source` records `source`, `usd_amount` or `booking_rate` |
 | campaign_sends | 8,277 sends after the campaign's `end_date` | Quality check, not a contract rule |
 | all | Scan of every text column: no other leaked placeholders (`nan`, `None`, `null`, `N/A`, …), blank strings or stray whitespace | — |
 | call_transcripts | `mentioned_entities` contains `"products": null` | Valid JSON, not a placeholder |

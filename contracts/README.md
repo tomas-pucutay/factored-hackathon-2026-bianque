@@ -36,7 +36,7 @@ foreign_keys:
   - {column: registration_branch_id, references: branches.branch_id, on_orphan: nullify}
 
 derived:                       # columns computed in silver, not present in bronze
-  amount_usd_source: {type: VARCHAR, allowed: [source, usd_amount, exchange_rate]}
+  amount_usd_source: {type: VARCHAR, allowed: [source, usd_amount, booking_rate]}
 
 pii:
   hash: [email]                # HMAC-SHA256 with PII_HASH_KEY
