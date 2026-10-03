@@ -18,7 +18,8 @@ expected.
 6. [Process date business rules](#6-process-date-business-rules)
 7. [Structural NULLs](#7-structural-nulls)
 8. [Other source quirks](#8-other-source-quirks)
-9. [How these were found](#9-how-these-were-found)
+9. [Cross-table relationships and the fraud label](#9-cross-table-relationships-and-the-fraud-label)
+10. [How these were found](#10-how-these-were-found)
 
 ## 1. Row counts vs the dictionary
 
@@ -270,7 +271,77 @@ These are treated as random missing data: e.g. `customers.landline_phone` (50%),
 | products, transactions | Mexican customers' products are all in USD; no product or transaction uses MXN (only `complaints.currency` does) | Kept as is |
 | transactions | `fraud_score` range is 0–99.99, consistent with the dictionary (0–100) | — |
 
-## 9. How these were found
+## 9. Cross-table relationships and the fraud label
+
+Found while designing gold (2026-10-04), measured on silver. These shape what gold can and
+cannot claim.
+
+### Links that hold vs links that point to the wrong owner
+
+A foreign key can exist in the parent table and still be wrong: it can point to a record of a
+**different customer**.
+
+| Relationship | Same customer | Gold uses it? |
+|--------------|--------------:|---------------|
+| `transactions.product_id` → product owner | 100% (4,425,008) | Yes |
+| `transactions.currency` = product currency | 100% | Yes |
+| `call_transcripts` / `satisfaction_surveys` customer and agent = their interaction's | 100% | Yes |
+| `digital_events.product_id` → product owner | 0.0% (16 of 1,094,242) | **No** |
+| `complaints.affected_product_id` → product owner | 0% (0 of 44,570) | **No**, exposed as a flag |
+
+The two broken links pass the FK check (the product exists) but are random with respect to the
+customer, like the orphaned branch keys of §3.
+
+### Complaints are not linked to transactions
+
+Tested to build `dispute_cases`:
+
+| Hypothesis | Result |
+|------------|--------|
+| `claimed_amount` equals a transaction of the same customer in the 90 days before | 0 of 21,751 |
+| The affected product belongs to the customer | 0 of 44,570 |
+| The affected product had transactions in the 30 days before | 25% (75% had none) |
+| Complaint currency = affected product currency | 25% (random among 4) |
+| A call center interaction of the same customer ±1 day ("Cargo no reconocido") | 0.9% |
+| Customers with fraud complain within 30 days | 0.9% (40 of 4,233), same as any customer in any 30 days (~1%) |
+
+`subcategory` is fixed by `category` (Transactions → "Cargo no reconocido", Fees → "Cobro
+indebido", Technical → "Problema con app", Branch → "Atención en sucursal", Service → "Calidad
+de servicio"). There is no source link from a dispute to the disputed transaction; gold offers
+candidate transactions, marked as unverified.
+
+### The fraud label has one signal: fraud_score
+
+Fraud is rare and stable: 0.098% of transactions (4,316), 0.088–0.102% per year, spread over
+4,233 customers (73 with two frauds, 5 with three).
+
+| Candidate signal | Fraud rate |
+|------------------|------------|
+| Channel (ATM, App, Branch, POS, Transfer, Web) | 0.095–0.108% |
+| Transaction type | 0.089–0.109% |
+| Status (Approved, Declined, Pending, Reversed) | 0.080–0.098% |
+| Foreign country vs customer country | 0.107% vs 0.097% |
+| Hour of day (top 6 hours) | ≤ 0.108% |
+| Amount vs the customer's prior median (< 0.5×, 0.5–2×, 2–5×, ≥ 5×, first) | 0.088–0.101% |
+| Amount in USD (deciles) | Same distribution for fraud and non-fraud |
+
+`fraud_score` (NULL in 20% of rows) is the only discriminating field, and it looks generated
+by rule: non-fraud scores are uniform in [0, 30) (p99 = 29.70, median exactly 15.00), fraud
+scores uniform in [0, 100).
+
+| Threshold | Flagged | Fraud among flagged (precision) | Recall |
+|----------:|--------:|--------------------------------:|-------:|
+| ≥ 20 | 1,181,156 | 0.23% | 79.7% |
+| ≥ 30 | 2,982 | 79.6% | 69.3% |
+| ≥ 40 | 2,013 | 100% | 58.8% |
+| ≥ 60 | 1,343 | 100% | 39.2% |
+
+Implications: behavioral features (gold `transaction_features`) carry no measurable univariate
+signal; a model on them alone should not be expected to beat `fraud_score`, and the frozen
+evaluation sets must compare both honestly. Transactions without a score (20%) have no known
+signal at all.
+
+## 10. How these were found
 
 Profiling queries were run with DuckDB over `data/bronze/**/*.parquet`:
 
