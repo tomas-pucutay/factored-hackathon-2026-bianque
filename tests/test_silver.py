@@ -342,3 +342,35 @@ def test_pii_contract_without_key_fails(tmp_path):
     )
     with pytest.raises(ValueError, match="need a hash key"):
         build_table(connect(settings), settings, PII_CONTRACT)
+
+
+def test_write_parquet_replaces_only_the_given_months(tmp_path):
+    from bianque.pipeline.silver import write_parquet
+
+    con = duckdb.connect()
+    out = tmp_path / "f"
+    rows = "SELECT * FROM (VALUES (1, DATE '2024-01-05'), (2, DATE '2024-02-05'), (3, DATE '2024-03-05')) v(id, d)"
+    write_parquet(con, rows, out, "d")
+
+    # Rewrite Feb with new content and empty March; January must stay untouched.
+    jan_before = sorted(p.name for p in (out / "process_month=2024-01").iterdir())
+    write_parquet(
+        con, "SELECT 20 AS id, DATE '2024-02-07' AS d", out, "d", months={"2024-02", "2024-03"}
+    )
+
+    got = con.sql(
+        f"SELECT id, process_month FROM read_parquet('{out}/**/*.parquet', hive_partitioning=true) ORDER BY id"
+    )
+    assert got.fetchall() == [(1, "2024-01"), (20, "2024-02")]
+    assert sorted(p.name for p in (out / "process_month=2024-01").iterdir()) == jan_before
+    assert not (out / "process_month=2024-03").exists()
+
+
+def test_write_parquet_rejects_rows_outside_the_given_months(tmp_path):
+    from bianque.pipeline.silver import write_parquet
+
+    con = duckdb.connect()
+    with pytest.raises(ValueError, match="other months"):
+        write_parquet(
+            con, "SELECT 1 AS id, DATE '2024-05-01' AS d", tmp_path / "f", "d", months={"2024-01"}
+        )

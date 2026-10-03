@@ -285,12 +285,29 @@ def partitioned_select(query: str, partition_column: str) -> str:
     return f"SELECT *, strftime({q(partition_column)}, '%Y-%m') AS {PARTITION_KEY} FROM ({query})"
 
 
+def _swap(new: Path, target: Path) -> None:
+    """Replace `target` with `new` (either may be missing), deleting the old copy last."""
+    old = target.with_name(target.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if target.exists():
+        target.rename(old)
+    if new.exists():
+        new.rename(target)
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def write_parquet(
-    con: duckdb.DuckDBPyConnection, query: str, out: Path, partition_column: str | None
+    con: duckdb.DuckDBPyConnection,
+    query: str,
+    out: Path,
+    partition_column: str | None,
+    months: set[str] | None = None,
 ) -> None:
-    """Write a query to a Parquet folder, replacing the old one only after success.
+    """Write a query to a Parquet folder, replacing the old data only after success.
 
     With a partition column the output is Hive-partitioned by month (`process_month=YYYY-MM`).
+    With `months`, only those month partitions are replaced and the rest are left untouched
+    (incremental runs); a month with no rows in the query is removed.
     """
     tmp = out.with_name(out.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -300,17 +317,27 @@ def write_parquet(
         con.execute(
             f"COPY ({partitioned_select(query, partition_column)}) TO {lit(str(tmp))} ({opts})"
         )
+        tmp.mkdir(exist_ok=True)  # COPY creates nothing when the query is empty
     else:
         tmp.mkdir()
         con.execute(
             f"COPY ({query}) TO {lit(str(tmp / 'data.parquet'))} (FORMAT parquet, COMPRESSION zstd)"
         )
-    old = out.with_name(out.name + ".old")
-    shutil.rmtree(old, ignore_errors=True)
-    if out.exists():
-        out.rename(old)
-    tmp.rename(out)
-    shutil.rmtree(old, ignore_errors=True)
+    if months is None:
+        _swap(tmp, out)
+        return
+    written = {p.name for p in tmp.iterdir()}
+    unexpected = written - {f"{PARTITION_KEY}={m}" for m in months}
+    if unexpected:
+        shutil.rmtree(tmp)
+        raise ValueError(
+            f"{out.name}: incremental write produced other months: {sorted(unexpected)}"
+        )
+    out.mkdir(parents=True, exist_ok=True)
+    for m in sorted(months):
+        name = f"{PARTITION_KEY}={m}"
+        _swap(tmp / name, out / name)
+    shutil.rmtree(tmp)
 
 
 def apply_table_sql(
