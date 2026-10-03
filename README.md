@@ -125,7 +125,7 @@ Bianque contacts a customer only when `p_fraud × amount_usd > channel cost + fr
 
 Frozen out-of-time evaluation sets live in [`eval/`](eval/README.md), with their SHA-256 in a committed manifest; every gold run verifies them. Costs that the data does not contain are **synthetic, versioned assumptions** in [`policies/`](policies/README.md).
 
-Key finding: the only fraud signal in this dataset is the bank's own `fraud_score`; behavioral features show no difference between fraud and non-fraud, so the calibrated baseline is the bar any model has to clear.
+Key finding: the only fraud signal in this dataset is the bank's own `fraud_score`; behavioral features show no difference between fraud and non-fraud, so the calibrated baseline is the bar any model has to clear. A signal gate confirmed it before training (a model on behavior ranks at chance), so the learned component is a calibrator of that score ([ADR 0001](docs/adr/0001-fraud-signal-gate.md)).
 
 Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.md).
 
@@ -139,6 +139,8 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
 | [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
+| [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
+| [`docs/adr/`](docs/adr/) | Architecture decision records: deviations from the build plan, with evidence |
 | [`contracts/README.md`](contracts/README.md) | The schema contract format |
 | [`fixtures/README.md`](fixtures/README.md) | Team-generated synthetic test data and what it covers |
 | [`policies/README.md`](policies/README.md) | Synthetic, versioned assumptions (costs) |
