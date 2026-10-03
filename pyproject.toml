@@ -24,6 +24,9 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.10",
 ]
+ml = [
+    "mlflow>=3.16.1",
+]
 
 [build-system]
 requires = ["hatchling"]
