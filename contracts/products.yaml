@@ -22,16 +22,32 @@ columns:
   product_number: {type: VARCHAR, nullable: false}
   currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
   current_balance: {type: "DECIMAL(15,2)", nullable: false}
-  credit_limit: {type: "DECIMAL(15,2)", range: [0, null]}
+  # Credit products only (credit card, loans).
+  credit_limit:
+    type: "DECIMAL(15,2)"
+    range: [0, null]
+    null_when: [{product_type: [Cuenta Ahorro, Cuenta Corriente, Inversión, Seguro, Tarjeta Débito]}]
   interest_rate: {type: "DECIMAL(5,2)", range: [0, null]}
   opening_date: {type: DATE, nullable: false}
-  expiration_date: {type: DATE}
+  # Cards only.
+  expiration_date:
+    type: DATE
+    null_when:
+      - product_type:
+          [Cuenta Ahorro, Cuenta Corriente, Inversión, Préstamo Hipotecario, Préstamo Personal, Seguro]
   opening_branch_id: {type: VARCHAR, nullable: false}
   product_status: {type: VARCHAR, nullable: false, allowed: [Active, Blocked, Closed, Suspended]}
   opening_channel: {type: VARCHAR, nullable: false, allowed: [App, Branch, Call Center, Web]}
   has_linked_app: {type: BOOLEAN, nullable: false}
-  days_past_due: {type: INTEGER, range: [0, null]}
-  last_transaction_date: {type: TIMESTAMP}
+  # Credit products only (credit card, loans).
+  days_past_due:
+    type: INTEGER
+    range: [0, null]
+    null_when: [{product_type: [Cuenta Ahorro, Cuenta Corriente, Inversión, Seguro, Tarjeta Débito]}]
+  # Active products only.
+  last_transaction_date:
+    type: TIMESTAMP
+    null_when: [{product_status: [Blocked, Closed, Suspended]}]
   last_updated: {type: TIMESTAMP, nullable: false}
 
 foreign_keys:
