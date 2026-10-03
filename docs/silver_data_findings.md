@@ -320,6 +320,13 @@ Tested to build `dispute_cases`:
 | A call center interaction of the same customer ±1 day ("Cargo no reconocido") | 0.9% |
 | Customers with fraud complain within 30 days | 0.9% (40 of 4,233), same as any customer in any 30 days (~1%) |
 
+**The complaint currency does not describe the amount.** `claimed_amount` is uniform 0–5,000
+with the same distribution under every label (median ~2,500 for ARS, COP, MXN and USD), and the
+label is spread evenly regardless of the customer's country. `compensation_granted` is uniform
+0–500, also independent of the label, and unrelated to the claim (correlation 0.03; 62 of 1,453
+compensations exceed the claim). Converting by the label would distort amounts up to 4,000×,
+so gold treats complaint amounts as USD (`*_usd_assumed`) and keeps the label.
+
 `subcategory` is fixed by `category` (Transactions → "Cargo no reconocido", Fees → "Cobro
 indebido", Technical → "Problema con app", Branch → "Atención en sucursal", Service → "Calidad
 de servicio"). There is no source link from a dispute to the disputed transaction; gold offers
