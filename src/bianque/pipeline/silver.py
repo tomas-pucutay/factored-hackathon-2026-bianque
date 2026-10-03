@@ -22,6 +22,7 @@ from pathlib import Path
 import duckdb
 
 from bianque.config import Settings, load_settings, pii_hash_key
+from bianque.pipeline import contracts as contracts_module
 from bianque.pipeline.contracts import Column, Contract, build_order, load_contracts
 from bianque.pipeline.watermark import (
     SilverState,
@@ -508,6 +509,17 @@ def duplicate_keys_in_silver(
     ).fetchone()[0]
 
 
+def definition_files(settings: Settings, table: str) -> list[Path]:
+    """Everything that shapes a table's silver output. A change in any of them makes the
+    next run rebuild the table in full instead of only the trailing window."""
+    return [
+        settings.contracts_dir / f"{table}.yaml",
+        settings.silver_sql_dir / f"{table}.sql",
+        Path(__file__),  # silver logic (typing, dedupe, keys, PII)
+        Path(contracts_module.__file__),  # contract parsing
+    ]
+
+
 def run_table(
     con: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -524,9 +536,7 @@ def run_table(
     fingerprints = {
         f: fingerprint(f) for f in files
     }  # before building: changes mid-run are picked up next time
-    current_hash = contract_hash(
-        settings.contracts_dir / f"{t}.yaml", settings.silver_sql_dir / f"{t}.sql"
-    )
+    current_hash = contract_hash(*definition_files(settings, t))
     spath = state_path(settings.meta_root, t)
     p = plan(
         con,

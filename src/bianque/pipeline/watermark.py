@@ -3,7 +3,7 @@
 State per table lives in <LAKE_ROOT>/_meta/silver_state/<table>.json:
   - watermark: highest process_date already in silver
   - fingerprints: size and mtime of every bronze file processed (new or rewritten = changed)
-  - contract_hash: contract + table SQL; a change forces a full rebuild
+  - contract_hash: contract, table SQL and silver code; a change forces a full rebuild
 
 Each incremental run reprocesses the months touched by changed bronze files plus the months
 covering the trailing window [watermark - late_arrival_days, watermark]. Rows older than the
@@ -106,7 +106,7 @@ def plan(
     if state is None or state.watermark is None:
         return Plan(True, "no previous state")
     if state.contract_hash != current_hash:
-        return Plan(True, "contract or table SQL changed")
+        return Plan(True, "contract, table SQL or silver code changed")
     if set(state.fingerprints) - set(files):
         return Plan(True, "bronze files were removed")
 

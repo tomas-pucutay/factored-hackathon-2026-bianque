@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import duckdb
 import pytest
 
@@ -476,3 +478,29 @@ def test_watermark_reprocesses_only_affected_months(tmp_path):
         ("b", 2, "2026-06"),
         ("c", 3, "2024-01"),
     ]
+
+
+def test_silver_code_is_part_of_the_rebuild_hash(tmp_path):
+    from bianque.pipeline import contracts, silver
+    from bianque.pipeline.silver import definition_files
+
+    files = definition_files(make_settings(tmp_path), "transactions")
+    assert Path(silver.__file__) in files
+    assert Path(contracts.__file__) in files
+    assert Path("contracts/transactions.yaml") in files
+    assert Path("sql/silver/transactions.sql") in files
+
+
+def test_code_change_forces_full_rebuild(tmp_path):
+    from bianque.pipeline.silver import connect, run_table
+
+    settings = make_settings(tmp_path)
+    con = connect(settings)
+    write_bronze(tmp_path, "f", "jun", [("b", "2026-06-17", "2.0")], FACT_COLS)
+    run_table(con, settings, FACT, None)
+
+    state_file = tmp_path / "_meta/silver_state/f.json"
+    state_file.write_text(
+        state_file.read_text().replace('"contract_hash": "', '"contract_hash": "old')
+    )
+    assert run_table(con, settings, FACT, None).mode == "full"
