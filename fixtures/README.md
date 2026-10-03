@@ -9,7 +9,8 @@ reproducible without access to the S3 bucket.
 
 ## `late_arrival_v2/`
 
-Exercises silver's incremental update with the same layout as the S3 bucket (`data/...`).
+Exercises the incremental update of silver and gold with the same layout as the S3 bucket
+(`data/...`).
 Used by [`tests/test_late_arrival.py`](../tests/test_late_arrival.py).
 
 | Stage | Files | Content |
@@ -26,4 +27,9 @@ Expected silver result after loading `base/` and then `late/`:
 - The 2 late rows are counted as older than the 7-day window and still applied.
 - `device_fingerprint` is kept as text; `TRX-FIX-0003.amount_usd` = 800,000 / 4,000 = 200.00.
 
-Gold assertions will be added to the same test when the gold layer exists.
+Expected gold result after `late/`:
+
+- `transaction_features` is recomputed: `TRX-FIX-0001` (customer 1, 2026-06-16) goes from no
+  history to 1 prior transaction (the late 2024-01-10 one) and ~888 days of observed tenure.
+- `customer_360` counts 2 transactions for customer 1 instead of 1.
+- The corrected duplicate (`TRX-FIX-0002`, USD 20.00) is the one gold sees.

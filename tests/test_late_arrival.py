@@ -129,3 +129,51 @@ def test_rerun_without_changes_is_idempotent(env):
     assert again.mode == "incremental ['2026-06']"  # only the trailing window
     assert again.late_rows == 0
     assert transactions(con, lake) == before
+
+
+def gold_after(settings, con, lake):
+    """Build gold over the fixture's silver; tables the fixture does not have are empty."""
+    from conftest import write_silver
+
+    from bianque.pipeline.gold import build as build_gold
+
+    for table in CONTRACTS:
+        if not (lake / "silver" / table).exists():
+            write_silver(lake, table, [])
+    build_gold(settings)
+    features = {
+        r[0]: r[1:]
+        for r in con.sql(
+            "SELECT transaction_id, n_prior_tx, days_since_first_tx, amount_usd FROM read_parquet("
+            f"'{lake}/gold/transaction_features/**/*.parquet', hive_partitioning = true)"
+        ).fetchall()
+    }
+    n_tx = dict(
+        con.sql(
+            f"SELECT customer_id, n_tx_total FROM '{lake}/gold/customer_360/*.parquet'"
+        ).fetchall()
+    )
+    return features, n_tx
+
+
+def test_gold_updates_with_the_late_partition(env):
+    settings, con = env
+    lake = settings.lake_root
+    ingest_stage("base", lake)
+    build(settings, con, ["branches", "customers", "products", "transactions"])
+    features, n_tx = gold_after(settings, con, lake)
+    assert features["TRX-FIX-0001"][:2] == (0, None)  # no history yet
+    assert n_tx["CLI-FIX0000001"] == 1
+
+    ingest_stage("late", lake)
+    build(settings, con, ["transactions"])
+    features, n_tx = gold_after(settings, con, lake)
+
+    # The late 2024 transaction becomes history for the 2026 one: gold recomputed it.
+    n_prior, days_since_first, _ = features["TRX-FIX-0001"]
+    assert n_prior == 1
+    assert round(days_since_first) == 888  # 2024-01-10 12:00 -> 2026-06-16 10:00
+    assert n_tx["CLI-FIX0000001"] == 2
+    # The corrected duplicate flows to gold.
+    assert float(features["TRX-FIX-0002"][2]) == 20.0
+    assert len(features) == 4
