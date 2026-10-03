@@ -452,3 +452,11 @@ def test_agent_routing_languages_and_measured_performance(tmp_path):
     )  # old one excluded
     assert (a2["speaks_pt"], a2["is_available"], a2["n_interactions_90d"]) == (False, False, 0)
     assert a2["is_fraud_specialist"] is False  # no specialty: not a specialist
+
+
+def test_every_registered_table_has_its_sql_file():
+    from pathlib import Path
+
+    from bianque.pipeline.gold import GOLD_TABLES
+
+    assert {p.stem for p in Path("sql/gold").glob("*.sql")} == set(GOLD_TABLES)

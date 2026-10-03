@@ -24,7 +24,10 @@ log = logging.getLogger("gold")
 GOLD_TABLES: dict[str, bool] = {
     "transaction_features": True,
     "customer_360": False,
-    "dispute_cases": False,
+    "channel_costs": False,
+    "service_cost_baseline": False,
+    "dispute_outcomes": False,
+    "agent_routing": False,
 }
 
 
