@@ -17,9 +17,11 @@ dedupe_order: [_ingested_at DESC, _source_key DESC]  # latest row per primary ke
 columns:
   amount: {type: "DECIMAL(15,2)", nullable: false, range: [0, null]}
   channel: {type: VARCHAR, allowed: [ATM, App, Branch]}
+  languages: {type: "VARCHAR[]", split: ", ", allowed: [en, es, pt]}  # list column
 
-value_map:                     # normalizations applied before checks
+value_map:                     # normalizations applied before checks, only where observed
   country: {México: Mexico}
+  languages: {español: es}     # on a list column, applied to each element
 
 foreign_keys:
   - {column: customer_id, references: customers.customer_id}            # on_orphan: quarantine (default)
@@ -32,6 +34,8 @@ pii:
 ```
 
 - `nullable` defaults to `true`. `range` bounds are inclusive; `null` means open-ended.
+- `split` turns a delimited text column into a list; `allowed` then applies to each element.
+- `value_map` is only added for variants actually observed in bronze, not speculatively.
 - `allowed` and `range` are quality checks. Type casts and `nullable: false` are hard rules.
 
 ## Rules
@@ -53,7 +57,11 @@ Observed in bronze on 2026-10-03:
 - Category values are partly in Spanish (`product_type`, `reason_category`,
   `detected_sentiment`, `geographic_zone`, `document_type: Pasaporte`). Contracts use the
   observed values; silver does not translate them.
-- `México` and `Mexico` are mixed across tables; `value_map` normalizes them to `Mexico`.
+- `México` and `Mexico` are mixed in `customers.country`, `branches.country`,
+  `transactions.transaction_country`, `digital_events.ip_country` and
+  `campaign_sends.open_country`; `value_map` normalizes them to `Mexico`.
+- `service_agents.languages` is a comma-separated list of Spanish names
+  (`español, inglés, portugués`); silver turns it into a list of ISO codes (`[es, en, pt]`).
 - `daily_exchange_rates` covers all 12 currency pairs per day (13,164 rows, not 3,000).
 - Mexican customers' products are all in USD; there are no MXN products or transactions.
 - `complaints.origin_interaction_id` is 100% null.
