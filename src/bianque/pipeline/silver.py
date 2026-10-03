@@ -206,16 +206,33 @@ def bronze_files(settings: Settings, table: str) -> list[str]:
     return sorted(str(p) for p in (settings.bronze_root / table).rglob("*.parquet"))
 
 
+PARTITION_KEY = "process_month"
+
+
+def partitioned_select(query: str, partition_column: str) -> str:
+    """Add the physical partition key: one folder per month of the partition column.
+
+    Daily folders would mean ~1,100 tiny files per table; a month is small enough to
+    rewrite when late arrivals touch it.
+    """
+    return f"SELECT *, strftime({q(partition_column)}, '%Y-%m') AS {PARTITION_KEY} FROM ({query})"
+
+
 def write_parquet(
-    con: duckdb.DuckDBPyConnection, query: str, out: Path, partition: str | None
+    con: duckdb.DuckDBPyConnection, query: str, out: Path, partition_column: str | None
 ) -> None:
-    """Write a query to a Parquet folder, replacing the old one only after success."""
+    """Write a query to a Parquet folder, replacing the old one only after success.
+
+    With a partition column the output is Hive-partitioned by month (`process_month=YYYY-MM`).
+    """
     tmp = out.with_name(out.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    if partition:
-        opts = f"FORMAT parquet, COMPRESSION zstd, PARTITION_BY ({q(partition)})"
-        con.execute(f"COPY ({query}) TO {lit(str(tmp))} ({opts})")
+    if partition_column:
+        opts = f"FORMAT parquet, COMPRESSION zstd, PARTITION_BY ({PARTITION_KEY})"
+        con.execute(
+            f"COPY ({partitioned_select(query, partition_column)}) TO {lit(str(tmp))} ({opts})"
+        )
     else:
         tmp.mkdir()
         con.execute(
