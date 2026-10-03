@@ -134,13 +134,28 @@ def typed_select(contract: Contract, source: str, extra_columns: list[str] = ())
     return f"SELECT {', '.join(selects)}, {errors} AS _errors FROM {source}"
 
 
-def dedupe_select(contract: Contract, source: str) -> str:
-    """Keep one row per primary key: the first by the contract's dedupe_order."""
+def duplicate_keys_select(contract: Contract, source: str) -> str:
     pk = ", ".join(q(c) for c in contract.primary_key)
+    return f"SELECT {pk} FROM {source} GROUP BY {pk} HAVING count(*) > 1"
+
+
+def dedupe_select(contract: Contract, source: str, dup_keys: str | None) -> str:
+    """Keep one row per primary key: the first by the contract's dedupe_order.
+
+    Only rows whose key is in `dup_keys` go through the (sorting) window; the rest pass
+    straight through. With no duplicates (`dup_keys` None) nothing is sorted.
+    """
+    if dup_keys is None:
+        return f"SELECT * FROM {source}"
+    pk = ", ".join(q(c) for c in contract.primary_key)
+    on = " AND ".join(f"s.{q(c)} = d.{q(c)}" for c in contract.primary_key)
     order = ", ".join(contract.dedupe_order)
     return (
-        f"SELECT * EXCLUDE (_rn) FROM (SELECT *, row_number() OVER "
-        f"(PARTITION BY {pk} ORDER BY {order}) AS _rn FROM {source}) WHERE _rn = 1"
+        f"SELECT s.* FROM {source} s ANTI JOIN {dup_keys} d ON {on} "
+        f"UNION ALL BY NAME "
+        f"SELECT * EXCLUDE (_rn) FROM (SELECT s.*, row_number() OVER "
+        f"(PARTITION BY {pk} ORDER BY {order}) AS _rn "
+        f"FROM {source} s SEMI JOIN {dup_keys} d ON {on}) WHERE _rn = 1"
     )
 
 
@@ -289,35 +304,50 @@ def build_table(
     extra = compare_schema(contract, file_columns(con, files))
     source = f"read_parquet({lit(files)}, union_by_name = true, hive_partitioning = false)"
 
-    con.execute(f"CREATE OR REPLACE TEMP TABLE staged AS {typed_select(contract, source, extra)}")
-    result.rows_in = con.execute("SELECT count(*) FROM staged").fetchone()[0]
+    # Everything is a view: each pass streams from bronze instead of materializing all rows.
+    con.execute(f"CREATE OR REPLACE TEMP VIEW staged AS {typed_select(contract, source, extra)}")
+    result.rows_in, bad_rows = con.execute(
+        "SELECT count(*), count(*) FILTER (WHERE len(_errors) > 0) FROM staged"
+    ).fetchone()
 
     # Rows that cannot be typed or miss a required value: kept aside with the reason.
     con.execute(
         "CREATE OR REPLACE TEMP TABLE quarantine AS SELECT * EXCLUDE (_errors), "
-        "array_to_string(_errors, '; ') AS _reason FROM staged WHERE len(_errors) > 0"
+        "array_to_string(_errors, '; ') AS _reason FROM staged WHERE false"
     )
+    if bad_rows:
+        con.execute(
+            "INSERT INTO quarantine SELECT * EXCLUDE (_errors), "
+            "array_to_string(_errors, '; ') FROM staged WHERE len(_errors) > 0"
+        )
     con.execute(
         "CREATE OR REPLACE TEMP VIEW valid AS "
         "SELECT * EXCLUDE (_errors) FROM staged WHERE len(_errors) = 0"
     )
-    con.execute(f"CREATE OR REPLACE TEMP VIEW deduped AS {dedupe_select(contract, 'valid')}")
+
+    con.execute(
+        f"CREATE OR REPLACE TEMP TABLE dup_keys AS {duplicate_keys_select(contract, 'valid')}"
+    )
+    has_dups = con.execute("SELECT count(*) FROM dup_keys").fetchone()[0] > 0
+    dedupe = dedupe_select(contract, "valid", "dup_keys" if has_dups else None)
+    con.execute(f"CREATE OR REPLACE TEMP VIEW deduped AS {dedupe}")
 
     # Foreign keys against the parents' silver tables (built first by build_order).
     parents = {fk.table: silver_relation(settings, fk.table) for fk in contract.foreign_keys}
-    kind = "TABLE" if contract.foreign_keys else "VIEW"
-    con.execute(
-        f"CREATE OR REPLACE TEMP {kind} checked AS {fk_select(contract, 'deduped', parents)}"
-    )
-    con.execute(
-        "INSERT INTO quarantine SELECT * EXCLUDE (_orphans, _nullified), "
-        "array_to_string(_orphans, '; ') FROM checked WHERE len(_orphans) > 0"
-    )
-    result.nullified = dict(
-        con.execute(
-            "SELECT e, count(*) FROM (SELECT unnest(_nullified) AS e FROM checked) GROUP BY e"
-        ).fetchall()
-    )
+    con.execute(f"CREATE OR REPLACE TEMP VIEW checked AS {fk_select(contract, 'deduped', parents)}")
+    if contract.foreign_keys:
+        nullify = [fk.column for fk in contract.foreign_keys if fk.on_orphan == "nullify"]
+        counts = ", ".join(
+            ["count(*) FILTER (WHERE len(_orphans) > 0)"]
+            + [f"count(*) FILTER (WHERE list_contains(_nullified, {lit(c)}))" for c in nullify]
+        )
+        orphan_rows, *nullified = con.execute(f"SELECT {counts} FROM checked").fetchone()
+        result.nullified = {c: n for c, n in zip(nullify, nullified, strict=True) if n}
+        if orphan_rows:
+            con.execute(
+                "INSERT INTO quarantine SELECT * EXCLUDE (_orphans, _nullified), "
+                "array_to_string(_orphans, '; ') FROM checked WHERE len(_orphans) > 0"
+            )
     con.execute(
         "CREATE OR REPLACE TEMP VIEW input AS "
         "SELECT * EXCLUDE (_orphans, _nullified) FROM checked WHERE len(_orphans) = 0"
@@ -342,11 +372,12 @@ def build_table(
     for name, obj in [
         ("final", "VIEW"),
         ("input", "VIEW"),
-        ("checked", kind),
+        ("checked", "VIEW"),
         ("deduped", "VIEW"),
+        ("dup_keys", "TABLE"),
         ("valid", "VIEW"),
         ("quarantine", "TABLE"),
-        ("staged", "TABLE"),
+        ("staged", "VIEW"),
     ]:
         con.execute(f"DROP {obj} IF EXISTS {name}")
     return result
