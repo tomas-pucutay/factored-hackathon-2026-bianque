@@ -1,7 +1,7 @@
 # factored-hackathon-2026-bianque
 The best complaint is the one that never arrives. Proactive AI customer service for LATAM banking. It scores card charges for fraud, contacts customers only when expected loss outweighs channel cost, and resolves disputes in Spanish and Portuguese with verified actions and safe human handoff.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, baseline scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested. Quality report, trained model and API are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, MLflow). Quality report, policy, agent and API are not implemented yet.
 
 ## Requirements
 
@@ -129,6 +129,28 @@ Key finding: the only fraud signal in this dataset is the bank's own `fraud_scor
 
 Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.md).
 
+### Model: a calibrated fraud probability
+
+```bash
+make label-signal   # signal gate: what the data can teach (reports/label_signal.md)
+make train          # fit and compare calibrators on the frozen sets, log to MLflow
+make gold           # rescore transaction_scores and the serving slice with the model
+```
+
+The signal gate showed that `fraud_score` already ranks at the ceiling the data allows (no legitimate transaction scores above 30.00; below it, fraud looks exactly like legitimate activity), and that behavioral features rank at chance. The learned component is therefore the map from score to probability ([ADR 0001](docs/adr/0001-fraud-signal-gate.md)):
+
+- **Bayesian blocks:** the data places the bin edges (it finds 30.00 / 30.01 on its own), and each block has a Beta posterior, so every `p_fraud` comes with a 95% credible interval for abstention.
+- **Compared on the frozen sets** with the raw score, the current histogram baseline and isotonic regression. It has the best log loss and the best simulated net benefit on validation (selection) and on test (report).
+- **The model is a committed JSON file** of aggregated counts ([`models/`](models/)); gold scores every transaction with it.
+
+| Calibrator (test, offline) | Log loss | Simulated net benefit (USD) |
+|---|---:|---:|
+| Raw score as a probability | 0.13740 | −343,192 |
+| Histogram baseline | 0.00334 | 585,293 |
+| Bayesian blocks | 0.00325 | 591,159 |
+
+Design decisions and their rationale: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md).
+
 ## Documentation
 
 Design decisions are documented with their evidence and the alternatives that were rejected:
@@ -138,6 +160,8 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/bronze_design.md`](docs/bronze_design.md) | How bronze works and why: ingestion, idempotency, layout, failure handling |
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
 | [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
+| [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
+| [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs baselines on the frozen sets, simulated contact outcomes, results by group (`make train`) |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
 | [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
 | [`docs/adr/`](docs/adr/) | Architecture decision records: deviations from the build plan, with evidence |
@@ -161,8 +185,8 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 | Step | Command | What it does |
 |------|---------|--------------|
 | Data | `make pipeline` | bronze (done) → silver (done) → gold (done) → quality report |
-| Model | `make train` | train fraud model and log to MLflow |
+| Model | `make train` | fit the fraud calibrator, compare with baselines, log to MLflow (done) |
 | Eval | `make evaluate` | compare contact policies and run agent evaluation |
 | Serve | `make serve` | run the FastAPI app locally |
 
-The quality report, model training, evaluation and serving modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report, evaluation and serving modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
