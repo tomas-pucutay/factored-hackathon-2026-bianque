@@ -304,3 +304,47 @@ def test_channel_costs_use_the_right_denominators(tmp_path):
         None,
     )
     assert (wa["n_sends_with_cost"], float(wa["avg_cost_per_send"])) == (1, 0.05)
+
+
+def contact(iid, itype, reason, seconds=None, resolved=True):
+    return {
+        "interaction_id": iid,
+        "interaction_date": "2026-01-01 10:00:00",
+        "process_date": "2026-01-01",
+        "customer_id": "c1",
+        "interaction_type": itype,
+        "channel": "Phone",
+        "contact_reason": reason,
+        "reason_category": reason,
+        "duration_seconds": seconds,
+        "was_resolved": resolved,
+        "requires_followup": False,
+        "was_escalated": False,
+        "has_transcript": False,
+        "has_recording": seconds is not None,
+    }
+
+
+def test_service_cost_baseline_prices_minutes_and_flat_contacts(tmp_path):
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_silver(
+        tmp_path,
+        "call_center_interactions",
+        [
+            contact("i1", "Inbound Call", "Queja", seconds=600),  # 10 min x 0.30 = 3.00
+            contact("i2", "Inbound Call", "Queja", seconds=120, resolved=False),  # 2 min = 0.60
+            contact("i3", "Chat", "Queja"),  # flat 1.00
+        ],
+    )
+    build(lake_settings(tmp_path), {"service_cost_baseline": False})
+    rows = {r["interaction_type"]: r for r in gold_rows(tmp_path, "service_cost_baseline")}
+
+    calls, chat = rows["Inbound Call"], rows["Chat"]
+    assert (calls["n_contacts"], calls["avg_handle_minutes"]) == (2, 6.0)
+    assert round(calls["total_cost_usd"], 2) == 3.60
+    assert round(calls["cost_per_contact_usd"], 2) == 1.80
+    assert calls["first_contact_resolution_rate"] == 0.5
+    assert (chat["median_handle_minutes"], chat["cost_per_contact_usd"]) == (None, 1.0)
+    assert {r["assumptions_version"] for r in rows.values()} == {"cost_assumptions_v1"}
+    assert calls["n_contacts_without_cost"] == 0
