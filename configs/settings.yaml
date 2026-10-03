@@ -1,0 +1,20 @@
+# Pipeline settings. Secrets never go here: they come from .env (see .env.example).
+# LAKE_ROOT in the environment overrides `lake_root`.
+
+lake_root: data
+contracts_dir: contracts
+silver_sql_dir: sql/silver
+
+silver:
+  # Late arrivals: each run reprocesses the process dates touched by new bronze files plus
+  # this many trailing days before the watermark.
+  late_arrival_days: 7
+  # Age bands for PII: date_of_birth is replaced by a band computed at this date
+  # (last day of the dataset), so silver is reproducible.
+  age_reference_date: "2026-06-17"
+  age_band_edges: [18, 25, 35, 45, 55, 65]
+
+duckdb:
+  # Keep below the machine's RAM; DuckDB spills to disk past this.
+  memory_limit: 3GB
+  threads: 4
