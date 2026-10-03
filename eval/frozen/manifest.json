@@ -1,0 +1,24 @@
+{
+  "frozen_at": "2026-10-03T16:38:39+00:00",
+  "source": "gold.transaction_features",
+  "split_on": "process_date",
+  "train_end_exclusive": "2025-07-01",
+  "sets": {
+    "fraud_validation": {
+      "file": "fraud_validation.parquet",
+      "process_date_from": "2025-07-01",
+      "process_date_to_exclusive": "2026-01-01",
+      "rows": 743934,
+      "fraud_rows": 699,
+      "sha256": "075d4b11c88a690f31e7d4181c481772132e8b23a437596c70580ff4e346b669"
+    },
+    "fraud_test": {
+      "file": "fraud_test.parquet",
+      "process_date_from": "2026-01-01",
+      "process_date_to_exclusive": "2026-06-18",
+      "rows": 685522,
+      "fraud_rows": 603,
+      "sha256": "2590b99d7c5b133b23665d4ab17d6721557ea494e572b79ec48e8af60247fd33"
+    }
+  }
+}
