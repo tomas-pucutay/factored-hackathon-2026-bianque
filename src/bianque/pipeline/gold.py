@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 import duckdb
+import yaml
 
 from bianque.config import Settings, load_settings
 from bianque.pipeline.silver import connect, lit, q, write_parquet
@@ -44,6 +45,34 @@ def register_layer(con: duckdb.DuckDBPyConnection, root: Path) -> list[str]:
     return names
 
 
+def register_cost_assumptions(con: duckdb.DuckDBPyConnection, path: Path) -> str:
+    """Expose the synthetic cost assumptions as `contact_cost_assumptions` and
+    `cost_assumptions` views. Returns the assumptions version."""
+    raw = yaml.safe_load(path.read_text())
+    version = raw["version"]
+    rows = []
+    for interaction_type, cost in raw["contact_costs"].items():
+        if set(cost) not in ({"per_minute"}, {"per_contact"}):
+            raise ValueError(
+                f"{path}: {interaction_type} needs exactly one of per_minute / per_contact"
+            )
+        rows.append(
+            f"({lit(interaction_type)}, {lit(cost.get('per_minute'))}::DOUBLE, "
+            f"{lit(cost.get('per_contact'))}::DOUBLE)"
+        )
+    con.execute(
+        "CREATE OR REPLACE TEMP VIEW contact_cost_assumptions AS "
+        f"SELECT *, {lit(version)} AS assumptions_version FROM (VALUES {', '.join(rows)}) "
+        "AS v(interaction_type, cost_per_minute_usd, cost_per_contact_usd)"
+    )
+    con.execute(
+        "CREATE OR REPLACE TEMP VIEW cost_assumptions AS SELECT "
+        f"{lit(version)} AS assumptions_version, "
+        f"{float(raw['friction_cost_legit_usd'])}::DOUBLE AS friction_cost_legit_usd"
+    )
+    return version
+
+
 def build_sql_table(
     con: duckdb.DuckDBPyConnection, settings: Settings, name: str, partitioned: bool
 ) -> int:
@@ -60,6 +89,7 @@ def build(settings: Settings, tables: dict[str, bool] = GOLD_TABLES) -> dict[str
     silver = register_layer(con, settings.silver_root)
     if not silver:
         raise FileNotFoundError(f"no silver tables under {settings.silver_root}: run silver first")
+    register_cost_assumptions(con, settings.cost_assumptions)
     counts = {}
     for name, partitioned in tables.items():
         counts[name] = build_sql_table(con, settings, name, partitioned)

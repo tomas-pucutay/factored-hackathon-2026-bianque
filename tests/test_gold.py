@@ -223,3 +223,34 @@ def test_customer_360_snapshot(tmp_path):
     # A customer without activity: zeros, not NULLs.
     assert (c2["n_tx_total"], c2["n_products"], c2["n_complaints_total"]) == (0, 0, 0)
     assert c2["first_tx_at"] is None
+
+
+def test_cost_assumptions_are_loaded_with_their_version():
+    from pathlib import Path
+
+    from bianque.pipeline.gold import register_cost_assumptions
+
+    con = duckdb.connect()
+    assert register_cost_assumptions(con, Path("policies/cost_assumptions_v1.yaml")) == (
+        "cost_assumptions_v1"
+    )
+    rows = dict(
+        con.sql(
+            "SELECT interaction_type, coalesce(cost_per_minute_usd, cost_per_contact_usd)"
+            " FROM contact_cost_assumptions"
+        ).fetchall()
+    )
+    assert set(rows) == {"Inbound Call", "Outbound Call", "Video", "Chat", "Email"}
+    assert con.sql("SELECT friction_cost_legit_usd FROM cost_assumptions").fetchone()[0] > 0
+
+
+def test_cost_assumptions_reject_ambiguous_costs(tmp_path):
+    from bianque.pipeline.gold import register_cost_assumptions
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        "version: x\nfriction_cost_legit_usd: 1\n"
+        "contact_costs:\n  Chat: {per_minute: 1, per_contact: 2}\n"
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        register_cost_assumptions(duckdb.connect(), bad)

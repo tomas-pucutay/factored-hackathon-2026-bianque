@@ -5,7 +5,9 @@ lake_root: data
 contracts_dir: contracts
 silver_sql_dir: sql/silver
 gold_sql_dir: sql/gold
-eval_manifest: eval/frozen_sets.json
+eval_manifest: eval/frozen/manifest.json
+# Synthetic cost assumptions (policies/README.md); bump the version to change them.
+cost_assumptions: policies/cost_assumptions_v1.yaml
 
 silver:
   # Late arrivals: each run reprocesses the process dates touched by new bronze files plus
