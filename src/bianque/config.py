@@ -26,6 +26,7 @@ class Settings:
     gold_sql_dir: Path = Path("sql/gold")
     eval_manifest: Path = Path("eval/frozen/manifest.json")
     cost_assumptions: Path = Path("policies/cost_assumptions_v1.yaml")
+    fraud_model: Path = Path("models/fraud_calibrator_bayes_blocks_v1.json")
     eval_train_end: date = date(2025, 7, 1)
     eval_validation_end: date = date(2026, 1, 1)
     eval_test_end: date = date(2026, 6, 18)
@@ -64,6 +65,7 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
         gold_sql_dir=Path(raw["gold_sql_dir"]),
         eval_manifest=Path(raw["eval_manifest"]),
         cost_assumptions=Path(raw["cost_assumptions"]),
+        fraud_model=Path(raw["fraud_model"]),
         eval_train_end=date.fromisoformat(gold["train_end"]),
         eval_validation_end=date.fromisoformat(gold["validation_end"]),
         eval_test_end=date.fromisoformat(gold["test_end"]),

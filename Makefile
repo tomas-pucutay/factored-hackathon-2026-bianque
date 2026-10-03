@@ -61,8 +61,8 @@ pipeline: bronze silver gold quality ## Full data pipeline
 label-signal: ## Check for learnable fraud signal before training (reports/label_signal.md)
 	$(PY) -m $(PKG).evaluation.label_signal
 
-train: ## Train model and log to MLflow
-	$(PY) -m $(PKG).models.train
+train: ## Fit the fraud calibrator, compare with baselines on frozen sets, log to MLflow
+	uv run --group ml python -m $(PKG).models.train
 
 evaluate: ## Compare policies and run agent evaluation
 	$(PY) eval/policies_compare.py
