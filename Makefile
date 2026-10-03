@@ -3,7 +3,7 @@
 		install hooks \
 		format lint test check \
 		bronze-plan bronze silver gold quality pipeline \
-		train evaluate \
+		label-signal train evaluate \
 		serve docker-build \
 		clean
 
@@ -57,6 +57,9 @@ quality: ## Run data quality checks and write reports/data_quality.md
 pipeline: bronze silver gold quality ## Full data pipeline
 
 # --- Models and evaluation ---------------------------------------------------
+
+label-signal: ## Check for learnable fraud signal before training (reports/label_signal.md)
+	$(PY) -m $(PKG).evaluation.label_signal
 
 train: ## Train model and log to MLflow
 	$(PY) -m $(PKG).models.train
