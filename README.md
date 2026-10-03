@@ -48,6 +48,8 @@ make bronze        # ingest pending files (progress bar in bytes)
 - **Incremental and idempotent:** `data/_meta/manifest.parquet` records key + ETag of every ingested object. Re-runs only process new or modified objects; failed files are retried on the next run, and progress is kept even if interrupted with Ctrl+C.
 - **Atomic writes:** files are written to `*.tmp` and renamed, so a Parquet file is never half-written.
 
+Design decisions and their rationale: [`docs/bronze_design.md`](docs/bronze_design.md).
+
 Source layout in the bucket (7,671 CSVs, ~5.1 GB):
 
 | Kind | S3 key | Datasets |
@@ -91,12 +93,15 @@ data/silver/
 
 Results on the real data: 23.5M rows, 0 quarantined, 0 duplicates, 150,826 orphaned branch keys nullified.
 
+Design decisions and their rationale: [`docs/silver_design.md`](docs/silver_design.md).
+
 ## Documentation
 
 Design decisions are documented with their evidence and the alternatives that were rejected:
 
 | Document | Read it for |
 |----------|-------------|
+| [`docs/bronze_design.md`](docs/bronze_design.md) | How bronze works and why: ingestion, idempotency, layout, failure handling |
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, quirks) |
 | [`contracts/README.md`](contracts/README.md) | The schema contract format |
