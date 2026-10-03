@@ -63,41 +63,7 @@ Integer columns arrive as floats in the CSVs (`701.0`), so they are cast through
 
 ## Deviations from the data dictionary
 
-Observed in bronze on 2026-10-03:
-
-- Category values are partly in Spanish (`product_type`, `reason_category`,
-  `detected_sentiment`, `geographic_zone`, `document_type: Pasaporte`). Contracts use the
-  observed values; silver does not translate them.
-- `México` and `Mexico` are mixed in `customers.country`, `branches.country`,
-  `transactions.transaction_country`, `digital_events.ip_country` and
-  `campaign_sends.open_country`; `value_map` normalizes them to `Mexico`.
-- `service_agents.languages` is a comma-separated list of Spanish names
-  (`español, inglés, portugués`); silver turns it into a list of ISO codes (`[es, en, pt]`).
-- `process_date` is a business day, not the calendar date of the event, and the rule differs
-  per table (see `process_day` in each fact contract): 06:00 cutoff for transactions,
-  campaign sends and digital events (up to 10 minutes of clock skew), 08:00 cutoff for
-  call center interactions and complaints, and inherited from the interaction for surveys and
-  transcripts. Silver keeps the source `process_date` as the partition and watermark key.
-- `campaign_sends.subject` contains `"¡Oferta especial en nan!"` in 38,142 rows, a pandas NaN
-  leaked from campaigns without a promoted product; it becomes NULL. A scan of every text
-  column in all tables found no other leaked placeholders, blank strings or stray whitespace.
-- NULLs come in two layers: structural (the field does not apply, e.g. `credit_limit` on a
-  savings account, `browser` on an app event, `resolution_date` on an open complaint) and
-  random on top of that, ~5% in most columns as the dictionary states. Structural rules are
-  encoded with `null_when` and were checked against every row in bronze.
-- `campaign_sends.was_opened` is NULL by design for undelivered sends and for Voice and
-  WhatsApp, which have no open tracking; it is not coerced to false.
-- `call_center_interactions.duration_seconds` is NULL for Chat and Email, and
-  `wait_time_seconds` exists only for Inbound Call. `call_transcripts.duration_seconds` is a
-  copy of the interaction's, so it is NULL for chat and email transcripts.
-- `transactions.amount_usd` is NULL for every USD transaction (plus ~5% random elsewhere);
-  silver sets it to `amount` for USD and converts the rest with `daily_exchange_rates`.
-- `digital_events` rows with `ip_country = 'Mexico'` (no accent, 1.04M rows) are anonymous
-  traffic with no `customer_id` and no `ip_city`; after normalization they are identified by
-  `customer_id IS NULL`.
-- `daily_exchange_rates` covers all 12 currency pairs per day (13,164 rows, not 3,000).
-- Mexican customers' products are all in USD; there are no MXN products or transactions.
-- `complaints.origin_interaction_id` is 100% null.
-- No duplicate primary keys exist in any table, despite the documented ~2%.
-- `customers.registration_branch_id` and `service_agents.assigned_branch_id` are random IDs,
-  not dirty keys, so they are nullified (see the Silver section of the project README).
+The contracts differ from the data dictionary wherever bronze disagrees with it (Spanish
+category values, orphaned branch keys, business-day `process_date`, structural NULLs, list
+columns, leaked placeholders). Each deviation, with its evidence and how silver handles it, is
+documented in [`docs/silver_data_findings.md`](../docs/silver_data_findings.md).
