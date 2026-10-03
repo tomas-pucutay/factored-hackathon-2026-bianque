@@ -5,9 +5,45 @@ Every step is driven by the table's contract in contracts/<table>.yaml.
 
 from __future__ import annotations
 
+import logging
+
+import duckdb
+
 from bianque.pipeline.contracts import Column, Contract
 
+log = logging.getLogger("silver")
+
 LINEAGE = ("_source_key", "_source_etag", "_ingested_at")
+
+
+class SchemaError(Exception):
+    """Breaking schema change: a contract column is missing from the data."""
+
+
+def file_columns(con: duckdb.DuckDBPyConnection, files: list[str]) -> dict[str, set[str]]:
+    """Column names of each Parquet file, read from metadata only."""
+    rows = con.execute(
+        "SELECT file_name, list(name) FROM parquet_schema(?) "
+        "WHERE num_children IS NULL GROUP BY file_name",
+        [files],
+    ).fetchall()
+    return {f: set(cols) for f, cols in rows}
+
+
+def compare_schema(contract: Contract, columns_by_file: dict[str, set[str]]) -> list[str]:
+    """Raise on missing contract columns; return additive columns, sorted."""
+    expected = set(contract.columns)
+    broken = {f: expected - cols for f, cols in columns_by_file.items() if expected - cols}
+    if broken:
+        sample = "\n  ".join(f"{f}: missing {sorted(m)}" for f, m in list(broken.items())[:5])
+        raise SchemaError(f"{contract.table}: {len(broken)} file(s) break the contract\n  {sample}")
+    seen = set().union(*columns_by_file.values()) if columns_by_file else set()
+    extra = sorted(seen - expected - set(LINEAGE))
+    if extra:
+        log.warning(
+            "%s: additive columns not in the contract, kept as text: %s", contract.table, extra
+        )
+    return extra
 
 
 def q(name: str) -> str:

@@ -2,7 +2,7 @@ import duckdb
 import pytest
 
 from bianque.pipeline.contracts import parse_contract
-from bianque.pipeline.silver import typed_select
+from bianque.pipeline.silver import SchemaError, compare_schema, file_columns, typed_select
 
 CONTRACT = parse_contract(
     {
@@ -68,3 +68,24 @@ def test_value_map_to_null_is_not_an_error():
 def test_bad_values_are_reported(values, error):
     [row] = run([values])
     assert error in row["_errors"]
+
+
+ALL = {"id", "score", "amount", "active", "country", "langs", "_source_key", "_ingested_at"}
+
+
+def test_additive_column_is_allowed_and_returned():
+    assert compare_schema(CONTRACT, {"a.parquet": ALL, "b.parquet": ALL | {"new_col"}}) == [
+        "new_col"
+    ]
+
+
+def test_missing_column_breaks_the_build():
+    with pytest.raises(SchemaError, match=r"b.parquet: missing \['score'\]"):
+        compare_schema(CONTRACT, {"a.parquet": ALL, "b.parquet": ALL - {"score"}})
+
+
+def test_file_columns_reads_parquet_metadata(tmp_path):
+    con = duckdb.connect()
+    path = str(tmp_path / "f.parquet")
+    con.execute(f"COPY (SELECT 1 AS a, 'x' AS b) TO '{path}' (FORMAT parquet)")
+    assert file_columns(con, [path]) == {path: {"a", "b"}}
