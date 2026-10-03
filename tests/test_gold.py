@@ -296,5 +296,11 @@ def test_channel_costs_use_the_right_denominators(tmp_path):
     assert (sms["opens_tracked"], sms["open_rate"], sms["click_rate"]) == (True, 0.5, 0.5)
     assert round(float(sms["cost_per_delivered"]), 2) == 0.15  # 0.30 spent / 2 delivered
     assert sms["median_hours_to_open"] == 2.0
-    assert (wa["opens_tracked"], wa["open_rate"]) == (False, None)  # unknown, not 0
+    # No response tracking: unknown, not 0.
+    assert (wa["opens_tracked"], wa["open_rate"], wa["click_rate"], wa["conversion_rate"]) == (
+        False,
+        None,
+        None,
+        None,
+    )
     assert (wa["n_sends_with_cost"], float(wa["avg_cost_per_send"])) == (1, 0.05)
