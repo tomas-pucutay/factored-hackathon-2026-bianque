@@ -246,6 +246,38 @@ def write_parquet(
     shutil.rmtree(old, ignore_errors=True)
 
 
+def apply_table_sql(
+    con: duckdb.DuckDBPyConnection, settings: Settings, contract: Contract, source: str, out: str
+) -> None:
+    """Create view `out`: `source` transformed by sql/silver/<table>.sql when that file exists.
+
+    The SQL reads the rows from `input` and may join any silver table built before by its
+    name (e.g. daily_exchange_rates). It must return the input columns plus the contract's
+    derived columns.
+    """
+    path = settings.silver_sql_dir / f"{contract.table}.sql"
+    if not path.exists():
+        con.execute(f"CREATE OR REPLACE TEMP VIEW {out} AS SELECT * FROM {source}")
+        return
+    built = settings.silver_root.iterdir() if settings.silver_root.exists() else []
+    for parent in sorted(p.name for p in built if p.is_dir()):
+        if parent != contract.table and not parent.startswith(("_", ".")) and "." not in parent:
+            con.execute(
+                f"CREATE OR REPLACE TEMP VIEW {q(parent)} AS SELECT * FROM {silver_relation(settings, parent)}"
+            )
+    sql = path.read_text().strip().rstrip(";")
+    con.execute(
+        f"CREATE OR REPLACE TEMP VIEW {out} AS WITH input AS (SELECT * FROM {source}) {sql}"
+    )
+    got = [r[0] for r in con.execute(f"DESCRIBE {out}").fetchall()]
+    expected = [r[0] for r in con.execute(f"DESCRIBE {source}").fetchall()] + list(contract.derived)
+    if sorted(got) != sorted(expected):
+        raise ValueError(
+            f"{path}: output columns differ from input + derived: "
+            f"missing {sorted(set(expected) - set(got))}, unexpected {sorted(set(got) - set(expected))}"
+        )
+
+
 def build_table(
     con: duckdb.DuckDBPyConnection, settings: Settings, contract: Contract
 ) -> TableResult:
@@ -287,9 +319,10 @@ def build_table(
         ).fetchall()
     )
     con.execute(
-        "CREATE OR REPLACE TEMP VIEW final AS "
+        "CREATE OR REPLACE TEMP VIEW input AS "
         "SELECT * EXCLUDE (_orphans, _nullified) FROM checked WHERE len(_orphans) = 0"
     )
+    apply_table_sql(con, settings, contract, "input", "final")
 
     result.quarantined = con.execute("SELECT count(*) FROM quarantine").fetchone()[0]
     quarantine_dir = settings.silver_root / "_quarantine" / t
@@ -308,6 +341,7 @@ def build_table(
     # Free the temp objects, dependents first.
     for name, obj in [
         ("final", "VIEW"),
+        ("input", "VIEW"),
         ("checked", kind),
         ("deduped", "VIEW"),
         ("valid", "VIEW"),

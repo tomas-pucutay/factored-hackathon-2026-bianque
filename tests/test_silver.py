@@ -226,3 +226,26 @@ def test_missing_parent_fails_clearly(tmp_path):
     write_bronze(tmp_path, "child", "c", [("x", None, None)], ["id", "parent_q", "parent_n"])
     with pytest.raises(FileNotFoundError, match="build its parents first"):
         build_table(connect(settings), settings, CHILD)
+
+
+def test_table_sql_adds_derived_columns_and_is_checked(tmp_path):
+    from dataclasses import replace
+
+    from bianque.pipeline.contracts import _column
+    from bianque.pipeline.silver import build_table, connect
+
+    sql_dir = tmp_path / "sql"
+    sql_dir.mkdir()
+    settings = replace(make_settings(tmp_path), silver_sql_dir=sql_dir)
+    contract = replace(CONTRACT, derived={"score_x2": _column("score_x2", {"type": "INTEGER"})})
+    cols = ["id", "score", "amount", "active", "country", "langs"]
+    write_bronze(tmp_path, "t", "f", [("a", "3.0", None, None, None, None)], cols)
+    con = connect(settings)
+
+    (sql_dir / "t.sql").write_text("SELECT *, score * 2 AS score_x2 FROM input;")
+    build_table(con, settings, contract)
+    assert con.sql(f"SELECT score_x2 FROM '{tmp_path}/silver/t/*.parquet'").fetchall() == [(6,)]
+
+    (sql_dir / "t.sql").write_text("SELECT * FROM input")  # forgets the derived column
+    with pytest.raises(ValueError, match=r"missing \['score_x2'\]"):
+        build_table(con, settings, contract)
