@@ -23,7 +23,7 @@ columns:
   amount: {type: "DECIMAL(15,2)", nullable: false}
   currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
   # Source: NULL for every USD transaction plus ~5% random. Silver sets it to amount for USD
-  # and converts the rest with daily_exchange_rates.
+  # and fills the rest with the source's fixed booking rate (sql/silver/transactions.sql).
   amount_usd: {type: "DECIMAL(15,2)"}
   channel: {type: VARCHAR, nullable: false, allowed: [ATM, App, Branch, POS, Transfer, Web]}
   branch_id: {type: VARCHAR, null_when: [{channel: [App, POS, Transfer, Web]}]}
@@ -54,3 +54,7 @@ foreign_keys:
   - {column: customer_id, references: customers.customer_id}
   - {column: product_id, references: products.product_id}
   - {column: branch_id, references: branches.branch_id}
+
+derived:
+  # How amount_usd was obtained (see sql/silver/transactions.sql).
+  amount_usd_source: {type: VARCHAR, allowed: [source, usd_amount, booking_rate]}
