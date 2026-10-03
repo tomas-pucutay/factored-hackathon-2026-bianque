@@ -1,7 +1,7 @@
 # factored-hackathon-2026-bianque
 The best complaint is the one that never arrives. Proactive AI customer service for LATAM banking. It scores card charges for fraud, contacts customers only when expected loss outweighs channel cost, and resolves disputes in Spanish and Portuguese with verified actions and safe human handoff.
 
-> **Status:** early scaffold. Bronze ingestion (S3 → Parquet) is implemented; silver, gold, model and API modules are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet) and silver (contracts, quarantine, dedupe, keys, PII, late arrivals) layers are implemented and tested. Gold, quality report, model and API are not implemented yet.
 
 ## Requirements
 
@@ -29,6 +29,7 @@ Run `make` or `make help` to list all commands.
 | `AWS__REGION` | Bucket region (default `us-east-2`) |
 | `AWS__BUCKET_NAME` | Source bucket holding the CSVs under `data/` |
 | `LAKE_ROOT` | Local lake directory (default `data`, git-ignored) |
+| `PII_HASH_KEY` | Secret key for PII tokens in silver; keep it stable (changing it changes every token) |
 
 If the key variables are empty, boto3 falls back to its default credential chain (`~/.aws`, SSO, instance role).
 
@@ -64,16 +65,42 @@ data/
     └── customers/customers.parquet
 ```
 
-### Silver: contracts (in progress)
+### Silver: typed, validated, private
 
-Each table has a schema contract in [`contracts/`](contracts/) (format in [`contracts/README.md`](contracts/README.md)): types, primary and foreign keys, allowed values, normalizations, list columns, structural NULL rules, process-day rules and PII columns. The contracts follow the data dictionary, corrected and validated against every row in bronze. The transformation code is not written yet.
+```bash
+make silver                                         # all tables; facts incrementally
+uv run python -m bianque.pipeline.silver --full     # ignore the watermark, rebuild all
+```
 
-Read [`docs/silver_data_findings.md`](docs/silver_data_findings.md) before working on silver or gold. Highlights:
+Driven by one schema contract per table in [`contracts/`](contracts/). For each table, silver:
 
-- Two foreign keys (`customers.registration_branch_id`, `service_agents.assigned_branch_id`) are random IDs, not repairable; silver sets them to NULL instead of dropping rows.
-- `process_date` is a business day with a per-table cutoff (06:00 or 08:00, or inherited from the interaction); silver never recomputes it.
-- Many NULLs are structural (the field does not apply) on top of ~5% random NULLs; structural ones are never filled.
-- No duplicate primary keys exist, despite the documented ~2%.
+- **Enforces the schema:** a missing column fails the build; new columns pass as text.
+- **Types and normalizes** (`México → Mexico`, list columns, integers sent as floats) and **quarantines** rows that do not fit, with a reason, instead of dropping them.
+- **Deduplicates** by primary key with a deterministic tie-break.
+- **Checks foreign keys** against the parent silver tables: orphans go to quarantine, except two keys that are random IDs in the source and are set to NULL.
+- **Fills `amount_usd`** with the source's booking rate (350 ARS, 4,000 COP per USD).
+- **Tokenizes PII** with HMAC-SHA256 and replaces birth dates by age bands.
+- **Handles late arrivals** with a watermark: facts rebuild only the months touched by new bronze files plus a 7-day trailing window (40 s vs 3 min for a full build).
+
+```
+data/silver/
+├── customers/data.parquet                        # dimensions
+├── transactions/process_month=2024-01/*.parquet  # facts, one folder per month
+└── _quarantine/<table>/                          # rejected rows with _reason
+```
+
+Results on the real data: 23.5M rows, 0 quarantined, 0 duplicates, 150,826 orphaned branch keys nullified.
+
+## Documentation
+
+Design decisions are documented with their evidence and the alternatives that were rejected:
+
+| Document | Read it for |
+|----------|-------------|
+| [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
+| [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, quirks) |
+| [`contracts/README.md`](contracts/README.md) | The schema contract format |
+| [`fixtures/README.md`](fixtures/README.md) | Team-generated synthetic test data and what it covers |
 
 ## Development
 
@@ -85,15 +112,13 @@ make test      # run pytest (tests/)
 
 Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on every commit. Never commit credentials; keep them in a local `.env` (ignored by git).
 
-## Planned workflow
-
-These targets are defined in the `Makefile` but their modules are still to be written:
+## Workflow
 
 | Step | Command | What it does |
 |------|---------|--------------|
-| Data | `make pipeline` | bronze (done) → silver (contracts, quarantine) → gold → quality report |
+| Data | `make pipeline` | bronze (done) → silver (done) → gold → quality report |
 | Model | `make train` | train fraud model and log to MLflow |
 | Eval | `make evaluate` | compare contact policies and run agent evaluation |
 | Serve | `make serve` | run the FastAPI app locally |
 
-Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+Gold, quality, model, evaluation and serving modules are still to be written. Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
