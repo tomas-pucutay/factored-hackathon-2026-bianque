@@ -1,0 +1,55 @@
+table: campaign_sends
+kind: fact
+description: Individual marketing campaign sends (internal)
+primary_key: [send_id]
+partition_column: process_date
+process_day: {timestamp: send_date, cutoff: "06:00"}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  send_id: {type: VARCHAR, nullable: false}
+  send_date: {type: TIMESTAMP, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  campaign_id: {type: VARCHAR, nullable: false}
+  customer_id: {type: VARCHAR, nullable: false}
+  send_channel: {type: VARCHAR, nullable: false, allowed: [Email, Push, SMS, Voice, WhatsApp]}
+  template_used: {type: VARCHAR}
+  # Email only. Built as "¡Oferta especial en <promoted_product>!".
+  subject: {type: VARCHAR, null_when: [{send_channel: [Push, SMS, Voice, WhatsApp]}]}
+  send_status: {type: VARCHAR, nullable: false, allowed: [Blocked, Bounced, Failed, Sent]}
+  was_delivered: {type: BOOLEAN, nullable: false}
+  # Voice and WhatsApp have no open tracking. Do not coerce to false: open rates exist only
+  # for Email, Push and SMS.
+  was_opened:
+    type: BOOLEAN
+    null_when: [{was_delivered: [false]}, {send_channel: [Voice, WhatsApp]}]
+  open_date: {type: TIMESTAMP, null_when: [{was_opened: [false, null]}]}
+  was_clicked: {type: BOOLEAN}
+  click_date: {type: TIMESTAMP, null_when: [{was_clicked: [false]}]}
+  click_count: {type: INTEGER, range: [0, null], null_when: [{was_clicked: [false]}]}
+  had_conversion: {type: BOOLEAN, nullable: false}
+  conversion_date: {type: TIMESTAMP, null_when: [{had_conversion: [false]}]}
+  conversion_value:
+    type: "DECIMAL(15,2)"
+    range: [0, null]
+    null_when: [{had_conversion: [false]}]
+  open_device:
+    type: VARCHAR
+    allowed: [Desktop, Mobile, Tablet]
+    null_when: [{was_opened: [false, null]}]
+  open_country:
+    type: VARCHAR
+    allowed: [Argentina, Colombia, Mexico]
+    null_when: [{was_opened: [false, null]}]
+  failure_reason: {type: VARCHAR, null_when: [{send_status: [Sent]}]}
+  send_cost: {type: "DECIMAL(10,4)", range: [0, null]}
+
+value_map:
+  open_country: {México: Mexico}
+  # 38,142 rows: campaigns without promoted_product leaked a pandas NaN into the text.
+  # The real subject is unknown, so it becomes NULL.
+  subject: {"¡Oferta especial en nan!": null}
+
+foreign_keys:
+  - {column: campaign_id, references: marketing_campaigns.campaign_id}
+  - {column: customer_id, references: customers.customer_id}

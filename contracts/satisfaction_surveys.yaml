@@ -1,0 +1,38 @@
+table: satisfaction_surveys
+kind: fact
+description: Post-interaction satisfaction surveys (CSAT, NPS, CES)
+primary_key: [survey_id]
+partition_column: process_date
+# Not the survey's own date: the process day of the evaluated interaction.
+process_day: {inherits: {table: call_center_interactions, via: interaction_id}}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  survey_id: {type: VARCHAR, nullable: false}
+  survey_date: {type: TIMESTAMP, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  interaction_id: {type: VARCHAR}
+  customer_id: {type: VARCHAR, nullable: false}
+  agent_id: {type: VARCHAR}
+  survey_type: {type: VARCHAR, nullable: false, allowed: [CES, CSAT, NPS]}
+  send_channel: {type: VARCHAR, nullable: false, allowed: [App, Email, IVR, SMS, Web]}
+  main_score: {type: INTEGER, nullable: false, range: [0, 10]}
+  nps_category:
+    type: VARCHAR
+    allowed: [Detractor, Passive, Promoter]
+    null_when: [{survey_type: [CES, CSAT]}]
+  question_1_text: {type: VARCHAR}
+  question_1_response: {type: INTEGER, range: [1, 5]}
+  question_2_text: {type: VARCHAR}
+  question_2_response: {type: INTEGER, range: [1, 5]}
+  question_3_text: {type: VARCHAR}
+  question_3_response: {type: INTEGER, range: [1, 5]}
+  open_comments: {type: VARCHAR}
+  comment_sentiment: {type: VARCHAR, allowed: [Negative, Neutral, Positive]}
+  response_time_hours: {type: "DECIMAL(8,2)", range: [0, null]}
+  campaign_response_rate: {type: "DECIMAL(5,2)", range: [0, 100]}
+
+foreign_keys:
+  - {column: interaction_id, references: call_center_interactions.interaction_id}
+  - {column: customer_id, references: customers.customer_id}
+  - {column: agent_id, references: service_agents.agent_id}

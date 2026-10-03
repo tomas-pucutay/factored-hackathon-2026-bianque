@@ -1,0 +1,39 @@
+table: call_transcripts
+kind: fact
+description: Call center transcripts in Spanish (contact center)
+primary_key: [transcript_id]
+partition_column: process_date
+process_day: {inherits: {table: call_center_interactions, via: interaction_id}}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  transcript_id: {type: VARCHAR, nullable: false}
+  interaction_id: {type: VARCHAR, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  customer_id: {type: VARCHAR, nullable: false}
+  agent_id: {type: VARCHAR, nullable: false}
+  full_text: {type: VARCHAR, nullable: false}
+  customer_text: {type: VARCHAR}
+  agent_text: {type: VARCHAR}
+  detected_language: {type: VARCHAR, nullable: false, allowed: [es, pt]}
+  detected_accent: {type: VARCHAR, allowed: [argentine, colombian, mexican, neutral]}
+  accent_confidence: {type: "DECIMAL(3,2)", range: [0, 1]}
+  # Source: "banco, cuenta" -> silver: [banco, cuenta].
+  detected_keywords: {type: "VARCHAR[]", split: ", "}
+  mentioned_entities: {type: VARCHAR}
+  detected_intents: {type: VARCHAR}
+  main_topics: {type: VARCHAR}
+  transcription_model: {type: VARCHAR, nullable: false}
+  audio_quality: {type: VARCHAR, allowed: [High, Low, Medium]}
+  # NOT NULL in the dictionary, but it is a copy of call_center_interactions.duration_seconds
+  # (equal in 100% of rows), so it is NULL for chat and email transcripts.
+  duration_seconds: {type: INTEGER, range: [0, null]}
+
+foreign_keys:
+  - {column: interaction_id, references: call_center_interactions.interaction_id}
+  - {column: customer_id, references: customers.customer_id}
+  - {column: agent_id, references: service_agents.agent_id}
+
+pii:
+  # Free text may contain personal data; it cannot be tokenized as a column.
+  free_text: [full_text, customer_text, agent_text]

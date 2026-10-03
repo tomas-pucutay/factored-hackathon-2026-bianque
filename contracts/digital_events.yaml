@@ -1,0 +1,69 @@
+table: digital_events
+kind: fact
+description: Digital channel events from the mobile app and web (digital banking)
+primary_key: [event_id]
+partition_column: process_date
+# Gradual handover between 06:00 and 06:10 every day: event_date likely comes from the
+# client device clock, ahead of the server clock that assigns process_date.
+process_day: {timestamp: event_date, cutoff: "06:00", tolerance_minutes: 10}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  event_id: {type: VARCHAR, nullable: false}
+  event_date: {type: TIMESTAMP, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  # NULL for anonymous traffic (all events with source ip_country 'Mexico' without accent,
+  # plus ~19% of the rest).
+  customer_id: {type: VARCHAR}
+  session_id: {type: VARCHAR, nullable: false}
+  event_type:
+    type: VARCHAR
+    nullable: false
+    allowed: [Click, Error, FormSubmit, Login, Logout, PageView, Purchase]
+  event_category:
+    type: VARCHAR
+    nullable: false
+    allowed: [Authentication, Navigation, Product, Transaction]
+  channel: {type: VARCHAR, nullable: false, allowed: [Android App, Desktop Web, Mobile Web, iOS App]}
+  platform: {type: VARCHAR, allowed: [Android, Linux, MacOS, Windows, iOS]}
+  browser: {type: VARCHAR, null_when: [{channel: [Android App, iOS App]}]}
+  app_version: {type: VARCHAR, null_when: [{channel: [Desktop Web, Mobile Web]}]}
+  page_url: {type: VARCHAR}
+  page_title: {type: VARCHAR}
+  action: {type: VARCHAR}
+  element_id: {type: VARCHAR}
+  product_id: {type: VARCHAR, null_when: [{event_category: [Authentication, Navigation, Transaction]}]}
+  event_value:
+    type: "DECIMAL(15,2)"
+    null_when: [{event_type: [Click, Error, Login, Logout, PageView]}]
+  duration_seconds:
+    type: INTEGER
+    range: [0, null]
+    null_when: [{event_type: [Click, Error, FormSubmit, Login, Logout, Purchase]}]
+  ip_address: {type: VARCHAR}
+  ip_country: {type: VARCHAR, nullable: false, allowed: [Argentina, Colombia, Mexico]}
+  ip_city: {type: VARCHAR}
+  is_mobile: {type: BOOLEAN, nullable: false}
+  # Attribution is recorded on Login events only.
+  referrer:
+    type: VARCHAR
+    null_when: [{event_type: [Click, Error, FormSubmit, Logout, PageView, Purchase]}]
+  utm_source:
+    type: VARCHAR
+    null_when: [{event_type: [Click, Error, FormSubmit, Logout, PageView, Purchase]}]
+  utm_medium:
+    type: VARCHAR
+    null_when: [{event_type: [Click, Error, FormSubmit, Logout, PageView, Purchase]}]
+  utm_campaign:
+    type: VARCHAR
+    null_when: [{event_type: [Click, Error, FormSubmit, Logout, PageView, Purchase]}]
+
+value_map:
+  ip_country: {México: Mexico}
+
+foreign_keys:
+  - {column: customer_id, references: customers.customer_id}
+  - {column: product_id, references: products.product_id}
+
+pii:
+  hash: [ip_address]

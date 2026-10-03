@@ -1,0 +1,56 @@
+table: transactions
+kind: fact
+description: Daily financial transactions (core banking)
+primary_key: [transaction_id]
+partition_column: process_date
+process_day: {timestamp: transaction_date, cutoff: "06:00"}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  transaction_id: {type: VARCHAR, nullable: false}
+  transaction_date: {type: TIMESTAMP, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  product_id: {type: VARCHAR, nullable: false}
+  customer_id: {type: VARCHAR, nullable: false}
+  transaction_type:
+    type: VARCHAR
+    nullable: false
+    allowed: [Adjustment, Deposit, Payment, Purchase, Transfer, Withdrawal]
+  transaction_category:
+    type: VARCHAR
+    allowed: [Entertainment, Food, Health, Other, Services, Transport]
+    null_when: [{transaction_type: [Adjustment, Deposit, Transfer, Withdrawal]}]
+  amount: {type: "DECIMAL(15,2)", nullable: false}
+  currency: {type: VARCHAR, nullable: false, allowed: [ARS, COP, MXN, USD]}
+  # Source: NULL for every USD transaction plus ~5% random. Silver sets it to amount for USD
+  # and converts the rest with daily_exchange_rates.
+  amount_usd: {type: "DECIMAL(15,2)"}
+  channel: {type: VARCHAR, nullable: false, allowed: [ATM, App, Branch, POS, Transfer, Web]}
+  branch_id: {type: VARCHAR, null_when: [{channel: [App, POS, Transfer, Web]}]}
+  merchant_name:
+    type: VARCHAR
+    null_when: [{transaction_type: [Adjustment, Deposit, Payment, Transfer, Withdrawal]}]
+  merchant_category:
+    type: VARCHAR
+    allowed: [Entertainment, Food, Health, Other, Services, Transport]
+    null_when: [{transaction_type: [Adjustment, Deposit, Payment, Transfer, Withdrawal]}]
+  transaction_country:
+    type: VARCHAR
+    nullable: false
+    allowed: [Argentina, Brazil, Colombia, Mexico, Spain, USA]
+  transaction_city: {type: VARCHAR}
+  transaction_status: {type: VARCHAR, nullable: false, allowed: [Approved, Declined, Pending, Reversed]}
+  response_code: {type: VARCHAR}
+  is_fraud: {type: BOOLEAN, nullable: false}
+  fraud_score: {type: "DECIMAL(5,2)", range: [0, 100]}
+  # Physical channels only (ATM, Branch, POS), and even there ~71% NULL.
+  latitude: {type: "DECIMAL(10,7)", range: [-90, 90], null_when: [{channel: [App, Transfer, Web]}]}
+  longitude: {type: "DECIMAL(10,7)", range: [-180, 180], null_when: [{channel: [App, Transfer, Web]}]}
+
+value_map:
+  transaction_country: {México: Mexico}
+
+foreign_keys:
+  - {column: customer_id, references: customers.customer_id}
+  - {column: product_id, references: products.product_id}
+  - {column: branch_id, references: branches.branch_id}

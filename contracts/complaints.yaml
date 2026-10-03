@@ -1,0 +1,71 @@
+table: complaints
+kind: fact
+description: Complaints and claims (PQR system)
+primary_key: [complaint_id]
+partition_column: process_date
+process_day: {timestamp: creation_date, cutoff: "08:00"}
+dedupe_order: [_ingested_at DESC, _source_key DESC]
+
+columns:
+  complaint_id: {type: VARCHAR, nullable: false}
+  creation_date: {type: TIMESTAMP, nullable: false}
+  process_date: {type: DATE, nullable: false}
+  customer_id: {type: VARCHAR, nullable: false}
+  case_type: {type: VARCHAR, nullable: false, allowed: [Claim, Complaint, Request, Suggestion]}
+  category: {type: VARCHAR, nullable: false}
+  subcategory: {type: VARCHAR}
+  reception_channel:
+    type: VARCHAR
+    nullable: false
+    allowed: [App, Branch, Call Center, Email, Regulator, Web]
+  affected_product_id: {type: VARCHAR}
+  related_branch_id: {type: VARCHAR}
+  # 100% null in the source.
+  origin_interaction_id: {type: VARCHAR}
+  description: {type: VARCHAR, nullable: false}
+  # Requests and suggestions carry no amount.
+  claimed_amount:
+    type: "DECIMAL(15,2)"
+    range: [0, null]
+    null_when: [{case_type: [Request, Suggestion]}]
+  currency:
+    type: VARCHAR
+    allowed: [ARS, COP, MXN, USD]
+    null_when: [{case_type: [Request, Suggestion]}]
+  priority: {type: VARCHAR, nullable: false, allowed: [Critical, High, Low, Medium]}
+  status:
+    type: VARCHAR
+    nullable: false
+    allowed: [Closed, Escalated, In Process, Open, Rejected, Resolved]
+  # Lifecycle fields exist only once the case reaches the matching status.
+  assigned_agent_id: {type: VARCHAR, null_when: [{status: [Open, Rejected]}]}
+  assignment_date: {type: TIMESTAMP, null_when: [{status: [Open, Rejected]}]}
+  first_response_date: {type: TIMESTAMP, null_when: [{status: [Escalated, Open, Rejected]}]}
+  resolution_date:
+    type: TIMESTAMP
+    null_when: [{status: [Escalated, In Process, Open, Rejected]}]
+  closing_date:
+    type: TIMESTAMP
+    null_when: [{status: [Escalated, In Process, Open, Rejected, Resolved]}]
+  sla_breached: {type: BOOLEAN, nullable: false}
+  resolution_days:
+    type: INTEGER
+    range: [0, null]
+    null_when: [{status: [Escalated, In Process, Open, Rejected]}]
+  resolution: {type: VARCHAR, null_when: [{status: [Escalated, In Process, Open, Rejected]}]}
+  compensation_granted:
+    type: "DECIMAL(15,2)"
+    range: [0, null]
+    null_when: [{status: [Escalated, In Process, Open, Rejected]}]
+  resolution_satisfaction:
+    type: INTEGER
+    range: [1, 5]
+    null_when: [{status: [Escalated, In Process, Open, Rejected, Resolved]}]
+  is_repeat_complainer: {type: BOOLEAN, nullable: false}
+
+foreign_keys:
+  - {column: customer_id, references: customers.customer_id}
+  - {column: affected_product_id, references: products.product_id}
+  - {column: related_branch_id, references: branches.branch_id}
+  - {column: origin_interaction_id, references: call_center_interactions.interaction_id}
+  - {column: assigned_agent_id, references: service_agents.agent_id}
