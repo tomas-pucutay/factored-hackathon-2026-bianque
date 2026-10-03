@@ -254,3 +254,47 @@ def test_cost_assumptions_reject_ambiguous_costs(tmp_path):
     )
     with pytest.raises(ValueError, match="exactly one"):
         register_cost_assumptions(duckdb.connect(), bad)
+
+
+def send(sid, channel, cost, delivered=True, opened=None, clicked=False, converted=False):
+    return {
+        "send_id": sid,
+        "send_date": "2026-01-01 10:00:00",
+        "process_date": "2026-01-01",
+        "campaign_id": "cmp1",
+        "customer_id": "c1",
+        "send_channel": channel,
+        "send_status": "Sent" if delivered else "Failed",
+        "was_delivered": delivered,
+        "was_opened": opened,
+        "open_date": "2026-01-01 12:00:00" if opened else None,
+        "was_clicked": clicked,
+        "had_conversion": converted,
+        "send_cost": cost,
+    }
+
+
+def test_channel_costs_use_the_right_denominators(tmp_path):
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_silver(
+        tmp_path,
+        "campaign_sends",
+        [
+            send("s1", "SMS", 0.10, opened=True, clicked=True),
+            send("s2", "SMS", 0.10, opened=False),
+            send("s3", "SMS", 0.10, delivered=False),  # not delivered: no open tracking
+            send("s4", "WhatsApp", 0.05),  # delivered, no open tracking on this channel
+            send("s5", "WhatsApp", None),  # cost unknown
+        ],
+    )
+    build(lake_settings(tmp_path), {"channel_costs": False})
+    rows = {r["channel"]: r for r in gold_rows(tmp_path, "channel_costs")}
+
+    sms, wa = rows["SMS"], rows["WhatsApp"]
+    assert (sms["n_sends"], round(sms["delivery_rate"], 4)) == (3, 0.6667)
+    assert (sms["opens_tracked"], sms["open_rate"], sms["click_rate"]) == (True, 0.5, 0.5)
+    assert round(float(sms["cost_per_delivered"]), 2) == 0.15  # 0.30 spent / 2 delivered
+    assert sms["median_hours_to_open"] == 2.0
+    assert (wa["opens_tracked"], wa["open_rate"]) == (False, None)  # unknown, not 0
+    assert (wa["n_sends_with_cost"], float(wa["avg_cost_per_send"])) == (1, 0.05)
