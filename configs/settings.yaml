@@ -4,6 +4,8 @@
 lake_root: data
 contracts_dir: contracts
 silver_sql_dir: sql/silver
+gold_sql_dir: sql/gold
+eval_manifest: eval/frozen_sets.json
 
 silver:
   # Late arrivals: each run reprocesses the process dates touched by new bronze files plus
@@ -13,6 +15,14 @@ silver:
   # (last day of the dataset), so silver is reproducible.
   age_reference_date: "2026-06-17"
   age_band_edges: [18, 25, 35, 45, 55, 65]
+
+gold:
+  # Out-of-time split for the frozen evaluation sets, on transaction_date:
+  # train < train_end <= validation < validation_end <= test.
+  train_end: "2025-07-01"
+  validation_end: "2026-01-01"
+  # Customers in the serving slice shipped with the deployed app.
+  serving_customers: 300
 
 duckdb:
   # Keep below the machine's RAM; DuckDB spills to disk past this.

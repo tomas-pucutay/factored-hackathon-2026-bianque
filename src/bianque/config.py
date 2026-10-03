@@ -23,6 +23,11 @@ class Settings:
     age_band_edges: tuple[int, ...]
     duckdb_memory_limit: str
     duckdb_threads: int
+    gold_sql_dir: Path = Path("sql/gold")
+    eval_manifest: Path = Path("eval/frozen_sets.json")
+    eval_train_end: date = date(2025, 7, 1)
+    eval_validation_end: date = date(2026, 1, 1)
+    serving_customers: int = 300
 
     @property
     def bronze_root(self) -> Path:
@@ -33,6 +38,10 @@ class Settings:
         return self.lake_root / "silver"
 
     @property
+    def gold_root(self) -> Path:
+        return self.lake_root / "gold"
+
+    @property
     def meta_root(self) -> Path:
         return self.lake_root / "_meta"
 
@@ -40,7 +49,7 @@ class Settings:
 def load_settings(path: Path = SETTINGS_PATH) -> Settings:
     load_dotenv()
     raw = yaml.safe_load(path.read_text())
-    silver, duck = raw["silver"], raw["duckdb"]
+    silver, gold, duck = raw["silver"], raw["gold"], raw["duckdb"]
     return Settings(
         lake_root=Path(os.getenv("LAKE_ROOT", raw["lake_root"])),
         contracts_dir=Path(raw["contracts_dir"]),
@@ -50,6 +59,11 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
         age_band_edges=tuple(silver["age_band_edges"]),
         duckdb_memory_limit=duck["memory_limit"],
         duckdb_threads=int(duck["threads"]),
+        gold_sql_dir=Path(raw["gold_sql_dir"]),
+        eval_manifest=Path(raw["eval_manifest"]),
+        eval_train_end=date.fromisoformat(gold["train_end"]),
+        eval_validation_end=date.fromisoformat(gold["validation_end"]),
+        serving_customers=int(gold["serving_customers"]),
     )
 
 
