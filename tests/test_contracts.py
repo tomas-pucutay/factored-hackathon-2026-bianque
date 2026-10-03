@@ -70,3 +70,8 @@ def test_validate_catches_broken_references(overrides, error):
     contract = parse_contract(_minimal(**overrides))
     errors = validate({"t": contract})
     assert any(error in e for e in errors), errors
+
+
+def test_derived_column_cannot_shadow_a_source_column():
+    contract = parse_contract(_minimal(derived={"id": {"type": "VARCHAR"}}))
+    assert any("also a source column" in e for e in validate({"t": contract}))

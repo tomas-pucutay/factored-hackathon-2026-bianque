@@ -67,6 +67,8 @@ class Contract:
     pii_hash: tuple[str, ...] = ()
     pii_age_band: tuple[str, ...] = ()
     pii_free_text: tuple[str, ...] = ()
+    # Columns computed in silver (not present in bronze), e.g. amount_usd_source.
+    derived: dict[str, Column] = field(default_factory=dict)
 
 
 def _column(name: str, spec: dict[str, Any]) -> Column:
@@ -115,6 +117,7 @@ def parse_contract(raw: dict[str, Any]) -> Contract:
         pii_hash=tuple(pii.get("hash", [])),
         pii_age_band=tuple(pii.get("age_band", [])),
         pii_free_text=tuple(pii.get("free_text", [])),
+        derived={name: _column(name, spec) for name, spec in raw.get("derived", {}).items()},
     )
 
 
@@ -129,6 +132,8 @@ def validate(contracts: dict[str, Contract]) -> list[str]:
                 if n not in cols:
                     errors.append(f"{c.table}: {what} references unknown column {n!r}")
 
+        for name in set(c.derived) & cols:
+            errors.append(f"{c.table}: derived column {name!r} is also a source column")
         if c.kind not in KINDS:
             errors.append(f"{c.table}: unknown kind {c.kind!r}")
         check(c.primary_key, "primary_key")

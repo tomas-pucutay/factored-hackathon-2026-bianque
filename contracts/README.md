@@ -35,6 +35,9 @@ foreign_keys:
   - {column: customer_id, references: customers.customer_id}            # on_orphan: quarantine (default)
   - {column: registration_branch_id, references: branches.branch_id, on_orphan: nullify}
 
+derived:                       # columns computed in silver, not present in bronze
+  amount_usd_source: {type: VARCHAR, allowed: [source, usd_amount, exchange_rate]}
+
 pii:
   hash: [email]                # HMAC-SHA256 with PII_HASH_KEY
   age_band: [date_of_birth]    # replaced by an age band
