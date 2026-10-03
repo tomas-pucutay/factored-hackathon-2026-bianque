@@ -144,7 +144,8 @@ write its own version into the same table.
   `is_out_of_sample` marks transactions after the train split.
 
 **Why:** the scan, the slice and the audit trail can be built and tested today; the model is
-then a drop-in replacement. And because `fraud_score` is the only signal in the data (§5),
+then a drop-in replacement. It now is: [`model_design.md`](model_design.md) §3.5. `score_calibration` is still
+built as the comparator. And because `fraud_score` is the only signal in the data (§5),
 this baseline is the bar the model has to clear.
 
 **Evidence that changed it:** a first prior weight of 10 predicted 0.92 for bins where 100% of
@@ -307,4 +308,6 @@ untouched.
 - **Voice and WhatsApp response is unknown;** the contact policy needs an assumption for them.
 - **The serving slice is git-ignored** (`*.duckdb`) like all data; how it reaches the deployed
   app (image build, artifact store) is decided with the deployment.
-- **`transaction_scores` is a baseline** until the model step writes a trained version.
+- **`transaction_scores` uses the trained calibrator** (`bayes_blocks_v1`, with a credible
+  interval) when `settings.fraud_model` points to it, and this baseline otherwise; see
+  [`model_design.md`](model_design.md).
