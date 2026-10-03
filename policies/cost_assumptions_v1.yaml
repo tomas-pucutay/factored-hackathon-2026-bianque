@@ -1,0 +1,33 @@
+# SYNTHETIC ASSUMPTIONS - NOT FROM THE DATASET.
+#
+# The data has no cost per service contact and no cost for bothering a legitimate customer.
+# These values are the team's order-of-magnitude assumptions for a LATAM retail bank, used
+# only to size the status-quo baseline (gold.service_cost_baseline) and the friction side of
+# the expected-value contact rule. They are not measured.
+#
+# Versioning: never edit a version that produced published results. Add
+# cost_assumptions_v2.yaml and point configs/settings.yaml to it; gold stamps the version on
+# every row that uses these numbers.
+
+version: cost_assumptions_v1
+currency: USD
+
+# Cost of one service contact by interaction type (matches call_center_interactions).
+# Calls and video are billed per minute of handling time (duration_seconds); chat and email
+# have no duration in the data (structural NULL), so they use a flat cost per contact.
+contact_costs:
+  # Fully loaded agent cost in LATAM contact centers is roughly USD 10-20 per hour including
+  # overhead, i.e. USD 0.17-0.33 per minute; the upper end covers telephony and IT.
+  Inbound Call: {per_minute: 0.30}
+  Outbound Call: {per_minute: 0.30}
+  # Video needs the same agent plus more expensive tooling.
+  Video: {per_minute: 0.40}
+  # One agent handles 2-3 chats in parallel; a chat takes ~8-10 agent minutes.
+  Chat: {per_contact: 1.00}
+  # Email: reading, investigating and writing a reply, ~10-15 agent minutes, no concurrency.
+  Email: {per_contact: 1.50}
+
+# Cost of contacting a legitimate customer about a charge that was not fraud: annoyance,
+# a possible blocked card, a follow-up contact and a small churn risk. Added to the channel
+# cost in the expected-value rule: contact only if p(fraud) x amount > channel cost + friction.
+friction_cost_legit_usd: 2.00
