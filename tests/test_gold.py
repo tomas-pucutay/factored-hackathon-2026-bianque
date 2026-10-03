@@ -15,7 +15,7 @@ def test_build_runs_sql_files_in_order_and_registers_outputs(empty_silver, tmp_p
     write_silver(empty_silver, "customers", [{"customer_id": "c1", "segment": "Basic"}])
 
     settings = lake_settings(empty_silver, gold_sql_dir=sql_dir)
-    counts = build(settings, {"first": False, "second": False}, scores=False)
+    counts = build(settings, {"first": False, "second": False}, scores=False, serving=False)
 
     assert counts == {"first": 1, "second": 1}
     n = duckdb.sql(f"SELECT n FROM '{empty_silver}/gold/second/*.parquet'").fetchone()[0]
@@ -114,7 +114,7 @@ def features_lake(root, transactions):
             },
         ],
     )
-    build(lake_settings(root), {"transaction_features": True}, scores=False)
+    build(lake_settings(root), {"transaction_features": True}, scores=False, serving=False)
     rel = duckdb.sql(
         f"SELECT * FROM read_parquet('{root}/gold/transaction_features/**/*.parquet',"
         " hive_partitioning = true)"
@@ -209,7 +209,7 @@ def test_customer_360_snapshot(tmp_path):
             },
         ],
     )
-    build(lake_settings(tmp_path), {"customer_360": False}, scores=False)
+    build(lake_settings(tmp_path), {"customer_360": False}, scores=False, serving=False)
     rows = {r["customer_id"]: r for r in gold_rows(tmp_path, "customer_360")}
 
     c1, c2 = rows["c1"], rows["c2"]
@@ -288,7 +288,7 @@ def test_channel_costs_use_the_right_denominators(tmp_path):
             send("s5", "WhatsApp", None),  # cost unknown
         ],
     )
-    build(lake_settings(tmp_path), {"channel_costs": False}, scores=False)
+    build(lake_settings(tmp_path), {"channel_costs": False}, scores=False, serving=False)
     rows = {r["channel"]: r for r in gold_rows(tmp_path, "channel_costs")}
 
     sms, wa = rows["SMS"], rows["WhatsApp"]
@@ -337,7 +337,7 @@ def test_service_cost_baseline_prices_minutes_and_flat_contacts(tmp_path):
             contact("i3", "Chat", "Queja"),  # flat 1.00
         ],
     )
-    build(lake_settings(tmp_path), {"service_cost_baseline": False}, scores=False)
+    build(lake_settings(tmp_path), {"service_cost_baseline": False}, scores=False, serving=False)
     rows = {r["interaction_type"]: r for r in gold_rows(tmp_path, "service_cost_baseline")}
 
     calls, chat = rows["Inbound Call"], rows["Chat"]
@@ -395,7 +395,7 @@ def test_dispute_outcomes_one_row_per_complaint(tmp_path):
             },
         ],
     )
-    build(lake_settings(tmp_path), {"dispute_outcomes": False}, scores=False)
+    build(lake_settings(tmp_path), {"dispute_outcomes": False}, scores=False, serving=False)
     rows = {r["complaint_id"]: r for r in gold_rows(tmp_path, "dispute_outcomes")}
 
     k1, k2 = rows["k1"], rows["k2"]
@@ -441,7 +441,7 @@ def test_agent_routing_languages_and_measured_performance(tmp_path):
         "process_date": "2025-01-01",
     }
     write_silver(tmp_path, "call_center_interactions", [recent, old])
-    build(lake_settings(tmp_path), {"agent_routing": False}, scores=False)
+    build(lake_settings(tmp_path), {"agent_routing": False}, scores=False, serving=False)
     rows = {r["agent_id"]: r for r in gold_rows(tmp_path, "agent_routing")}
 
     a1, a2 = rows["a1"], rows["a2"]
@@ -481,7 +481,7 @@ def test_transaction_scores_calibrate_on_train_only(tmp_path):
     write_silver(tmp_path, "transactions", train + test)
 
     settings = lake_settings(tmp_path, eval_train_end=date(2025, 7, 1))
-    counts = build(settings, {}, scores=True)
+    counts = build(settings, {}, scores=True, serving=False)
     assert counts["transaction_scores"] == 93
 
     cal = {r["score_bin"]: r for r in gold_rows(tmp_path, "score_calibration")}
@@ -512,7 +512,7 @@ def test_unseen_score_bins_take_the_nearest_observed_bin(tmp_path):
     rows += [{**tx(f"n{i}", "2025-01-01 11:00:00", 1), "fraud_score": 3.0} for i in range(40)]
     rows += [{**tx("new_high", "2026-01-01 10:00:00", 1), "fraud_score": 97.0}]  # bin 19, unseen
     write_silver(tmp_path, "transactions", rows)
-    build(lake_settings(tmp_path, eval_train_end=date(2025, 7, 1)), {}, scores=True)
+    build(lake_settings(tmp_path, eval_train_end=date(2025, 7, 1)), {}, scores=True, serving=False)
 
     cal = {r["score_bin"]: r for r in gold_rows(tmp_path, "score_calibration")}
     assert len(cal) == 21  # 20 bins + no score

@@ -17,6 +17,7 @@ import yaml
 
 from bianque.config import Settings, load_settings
 from bianque.models.baselines import build_transaction_scores
+from bianque.pipeline.serving import build_serving_slice
 from bianque.pipeline.silver import connect, lit, q, write_parquet
 
 log = logging.getLogger("gold")
@@ -41,7 +42,8 @@ def register_layer(con: duckdb.DuckDBPyConnection, root: Path) -> list[str]:
     names = []
     if root.exists():
         for p in sorted(root.iterdir()):
-            if p.is_dir() and not p.name.startswith(("_", ".")) and "." not in p.name:
+            is_table = p.is_dir() and any(p.rglob("*.parquet"))  # skips e.g. gold/serving
+            if is_table and not p.name.startswith(("_", ".")) and "." not in p.name:
                 con.execute(
                     f"CREATE OR REPLACE TEMP VIEW {q(p.name)} AS SELECT * FROM {relation(p)}"
                 )
@@ -89,7 +91,10 @@ def build_sql_table(
 
 
 def build(
-    settings: Settings, tables: dict[str, bool] = GOLD_TABLES, scores: bool = True
+    settings: Settings,
+    tables: dict[str, bool] = GOLD_TABLES,
+    scores: bool = True,
+    serving: bool = True,
 ) -> dict[str, int]:
     con = connect(settings)
     silver = register_layer(con, settings.silver_root)
@@ -103,6 +108,11 @@ def build(
     if scores:
         counts["transaction_scores"] = build_transaction_scores(con, settings)
         log.info("%-22s rows=%10d", "transaction_scores", counts["transaction_scores"])
+        register_layer(con, settings.gold_root)
+    if serving:
+        slice_counts = build_serving_slice(con, settings)
+        counts["serving_customers"] = slice_counts["slice_customers"]
+        log.info("serving slice          %s", slice_counts)
     return counts
 
 
