@@ -348,3 +348,70 @@ def test_service_cost_baseline_prices_minutes_and_flat_contacts(tmp_path):
     assert (chat["median_handle_minutes"], chat["cost_per_contact_usd"]) == (None, 1.0)
     assert {r["assumptions_version"] for r in rows.values()} == {"cost_assumptions_v1"}
     assert calls["n_contacts_without_cost"] == 0
+
+
+def test_dispute_outcomes_one_row_per_complaint(tmp_path):
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_customer_and_product(tmp_path)
+    write_silver(
+        tmp_path,
+        "products",
+        [
+            {"product_id": "p1", "customer_id": "c1", "product_type": "Tarjeta Crédito"},
+            {"product_id": "p9", "customer_id": "someone_else", "product_type": "Seguro"},
+        ],
+    )
+    base = {
+        "customer_id": "c1",
+        "creation_date": "2026-01-01 10:00:00",
+        "process_date": "2026-01-01",
+    }
+    write_silver(
+        tmp_path,
+        "complaints",
+        [
+            {
+                **base,
+                "complaint_id": "k1",
+                "category": "Transactions",
+                "status": "Closed",
+                "reception_channel": "Regulator",
+                "sla_breached": True,
+                "claimed_amount": 2500,
+                "currency": "COP",
+                "compensation_granted": 250,
+                "affected_product_id": "p9",
+                "first_response_date": "2026-01-01 16:00:00",
+            },
+            {
+                **base,
+                "complaint_id": "k2",
+                "category": "Technical",
+                "status": "Open",
+                "reception_channel": "App",
+                "sla_breached": False,
+                "affected_product_id": "p1",
+            },
+        ],
+    )
+    build(lake_settings(tmp_path), {"dispute_outcomes": False})
+    rows = {r["complaint_id"]: r for r in gold_rows(tmp_path, "dispute_outcomes")}
+
+    k1, k2 = rows["k1"], rows["k2"]
+    assert (k1["is_charge_dispute"], k1["is_regulator"], k1["is_resolved"]) == (True, True, True)
+    # Amounts are not converted by the (random) currency label.
+    assert float(k1["claimed_amount_usd_assumed"]) == 2500
+    assert k1["source_currency_label"] == "COP"
+    assert (float(k1["compensation_usd_assumed"]), k1["has_compensation"]) == (250, True)
+    assert k1["first_response_hours"] == 6.0
+    assert (k1["affected_product_is_customers"], k2["affected_product_is_customers"]) == (
+        False,
+        True,
+    )
+    assert (k2["is_charge_dispute"], k2["is_resolved"], k2["has_compensation"]) == (
+        False,
+        False,
+        False,
+    )
+    assert k1["segment"] == "Basic"
