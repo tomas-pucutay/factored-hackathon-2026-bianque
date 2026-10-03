@@ -415,3 +415,40 @@ def test_dispute_outcomes_one_row_per_complaint(tmp_path):
         False,
     )
     assert k1["segment"] == "Basic"
+
+
+def test_agent_routing_languages_and_measured_performance(tmp_path):
+    for table in CONTRACTS:
+        write_silver(tmp_path, table, [])
+    write_silver(
+        tmp_path,
+        "service_agents",
+        [
+            {
+                "agent_id": "a1",
+                "languages": ["es", "pt"],
+                "specialty": "Fraudes",
+                "agent_status": "Active",
+            },
+            {"agent_id": "a2", "languages": ["es"], "specialty": None, "agent_status": "Vacation"},
+        ],
+    )
+    recent = {**contact("i1", "Inbound Call", "Queja", seconds=60), "agent_id": "a1"}
+    old = {
+        **contact("i0", "Inbound Call", "Queja", seconds=60, resolved=False),
+        "agent_id": "a1",
+        "interaction_date": "2025-01-01 10:00:00",
+        "process_date": "2025-01-01",
+    }
+    write_silver(tmp_path, "call_center_interactions", [recent, old])
+    build(lake_settings(tmp_path), {"agent_routing": False})
+    rows = {r["agent_id"]: r for r in gold_rows(tmp_path, "agent_routing")}
+
+    a1, a2 = rows["a1"], rows["a2"]
+    assert (a1["speaks_pt"], a1["is_fraud_specialist"], a1["is_available"]) == (True, True, True)
+    assert (a1["n_interactions_90d"], a1["first_contact_resolution_rate_90d"]) == (
+        1,
+        1.0,
+    )  # old one excluded
+    assert (a2["speaks_pt"], a2["is_available"], a2["n_interactions_90d"]) == (False, False, 0)
+    assert a2["is_fraud_specialist"] is False  # no specialty: not a specialist
