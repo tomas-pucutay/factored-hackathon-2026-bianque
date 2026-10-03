@@ -92,9 +92,10 @@ def test_serving_slice_selects_targets_disputes_and_a_sample(tmp_path):
     }
     assert tx_customers <= set(reasons)
     target_tx = con.sql(
-        "SELECT transaction_id, p_fraud > 0.5 FROM transactions WHERE customer_id = 'c_target'"
+        "SELECT transaction_id, p_fraud > 0.5, p_fraud_low FROM transactions "
+        "WHERE customer_id = 'c_target'"
     ).fetchall()
-    assert target_tx == [("hot", True)]
+    assert target_tx == [("hot", True, None)]  # the baseline has no interval
 
     # No labels anywhere in the slice.
     assert (

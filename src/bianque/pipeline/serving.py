@@ -5,7 +5,7 @@ deterministically, everything the tools and the agent need about them, and the s
 reference tables (agents, channel costs, cost assumptions).
 
 Customer selection (ordered by md5(customer_id), so the same data gives the same slice):
-  1. proactive targets: a transaction in the last 30 days with baseline p_fraud >= 0.5
+  1. proactive targets: a transaction in the last 30 days with p_fraud >= 0.5
   2. customers with a charge dispute (Transactions / Fees) in the last 90 days
   3. the rest of settings.serving_customers from all customers
 Each group takes at most a third of the slice; the remainder fills group 3.
@@ -75,7 +75,7 @@ def build_serving_slice(con: duckdb.DuckDBPyConnection, settings: Settings) -> d
         "products": "SELECT p.* FROM products p SEMI JOIN slice_customers USING (customer_id)",
         "transactions": f"""
             SELECT t.* EXCLUDE (is_fraud, process_month),
-                   s.p_fraud, s.model_version, s.scored_at
+                   s.p_fraud, s.p_fraud_low, s.p_fraud_high, s.model_version, s.scored_at
             FROM transactions t
             SEMI JOIN slice_customers USING (customer_id)
             JOIN transaction_scores s USING (transaction_id)
