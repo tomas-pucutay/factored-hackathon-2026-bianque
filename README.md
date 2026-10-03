@@ -18,6 +18,14 @@ make hooks     # install pre-commit hooks (gitleaks, ruff, hygiene checks)
 cp .env.example .env   # then fill in the AWS credentials and bucket name
 ```
 
+Generate the PII hash key once and add it to `.env` (silver refuses to run without it):
+
+```bash
+echo "PII_HASH_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> .env
+```
+
+Keep this key stable and private: changing it changes every PII token in silver (a full rebuild is needed), and anyone with the key can test guesses against the tokens.
+
 Run `make` or `make help` to list all commands.
 
 ### Environment variables
