@@ -10,14 +10,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import shutil
 from dataclasses import dataclass, field
+from datetime import date
+from itertools import pairwise
 from pathlib import Path
 
 import duckdb
 
-from bianque.config import Settings, load_settings
+from bianque.config import Settings, load_settings, pii_hash_key
 from bianque.pipeline.contracts import Column, Contract, build_order, load_contracts
 
 log = logging.getLogger("silver")
@@ -189,6 +192,55 @@ def fk_select(contract: Contract, source: str, parents: dict[str, str]) -> str:
     )
 
 
+AGE_BAND = "age_band"
+
+
+def hmac_sql(expr: str, key: str) -> str:
+    """HMAC-SHA256 of a text expression as lowercase hex, in pure SQL (RFC 2104).
+
+    DuckDB has sha256 but no hmac, so the padded keys are computed here and the two
+    hashes run vectorized in SQL: H((K ^ opad) || H((K ^ ipad) || m)).
+    """
+    k = key.encode()
+    if len(k) > 64:
+        k = hashlib.sha256(k).digest()
+    k = k.ljust(64, b"\0")
+    ipad = bytes(b ^ 0x36 for b in k).hex()
+    opad = bytes(b ^ 0x5C for b in k).hex()
+    inner = f"unhex(sha256(unhex('{ipad}') || encode({expr})))"
+    return f"sha256(unhex('{opad}') || {inner})"
+
+
+def age_band_sql(expr: str, reference: date, edges: tuple[int, ...]) -> str:
+    """Age at `reference` bucketed by `edges`, e.g. 18-24, ..., 65+ (and <18)."""
+    age = f"date_sub('year', {expr}, DATE '{reference.isoformat()}')"
+    whens = [f"WHEN {age} < {edges[0]} THEN '<{edges[0]}'"]
+    whens += [f"WHEN {age} < {hi} THEN '{lo}-{hi - 1}'" for lo, hi in pairwise(edges)]
+    return f"CASE WHEN {expr} IS NULL THEN NULL {' '.join(whens)} ELSE '{edges[-1]}+' END"
+
+
+def pii_select(contract: Contract, source: str, settings: Settings, key: str | None) -> str:
+    """Tokenize `pii.hash` columns and replace `pii.age_band` columns by `age_band`.
+
+    Free-text PII (`pii.free_text`) cannot be tokenized and is only documented.
+    """
+    if not (contract.pii_hash or contract.pii_age_band):
+        return f"SELECT * FROM {source}"
+    if key is None:
+        raise ValueError(f"{contract.table}: PII columns need a hash key")
+    replaces = [f"{hmac_sql(q(c), key)} AS {q(c)}" for c in contract.pii_hash]
+    star = "*"
+    if contract.pii_age_band:
+        star += f" EXCLUDE ({', '.join(q(c) for c in contract.pii_age_band)})"
+    if replaces:
+        star += f" REPLACE ({', '.join(replaces)})"
+    bands = [
+        f"{age_band_sql(q(c), settings.age_reference_date, settings.age_band_edges)} AS {AGE_BAND}"
+        for c in contract.pii_age_band
+    ]
+    return f"SELECT {', '.join([star, *bands])} FROM {source}"
+
+
 @dataclass
 class TableResult:
     table: str
@@ -286,7 +338,11 @@ def apply_table_sql(
     sql = path.read_text().strip().rstrip(";")
     con.execute(f"CREATE OR REPLACE TEMP VIEW {out} AS {sql}")
     got = [r[0] for r in con.execute(f"DESCRIBE {out}").fetchall()]
-    expected = [r[0] for r in con.execute(f"DESCRIBE {source}").fetchall()] + list(contract.derived)
+    expected = [r[0] for r in con.execute(f"DESCRIBE {source}").fetchall()] + [
+        d
+        for d in contract.derived
+        if d != AGE_BAND  # added later by the PII step
+    ]
     if sorted(got) != sorted(expected):
         raise ValueError(
             f"{path}: output columns differ from input + derived: "
@@ -295,7 +351,10 @@ def apply_table_sql(
 
 
 def build_table(
-    con: duckdb.DuckDBPyConnection, settings: Settings, contract: Contract
+    con: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    contract: Contract,
+    pii_key: str | None = None,
 ) -> TableResult:
     t = contract.table
     result = TableResult(t)
@@ -358,12 +417,17 @@ def build_table(
     result.quarantined = con.execute("SELECT count(*) FROM quarantine").fetchone()[0]
     quarantine_dir = settings.silver_root / "_quarantine" / t
     if result.quarantined:
-        write_parquet(con, "SELECT * FROM quarantine", quarantine_dir, None)
+        # Quarantined rows get the same PII treatment: raw PII never lands in silver.
+        write_parquet(
+            con, pii_select(contract, "quarantine", settings, pii_key), quarantine_dir, None
+        )
     else:
         shutil.rmtree(quarantine_dir, ignore_errors=True)
 
     out = settings.silver_root / t
-    write_parquet(con, "SELECT * FROM final", out, contract.partition_column)
+    write_parquet(
+        con, pii_select(contract, "final", settings, pii_key), out, contract.partition_column
+    )
     # Count from the written files (Parquet metadata) instead of re-running the query.
     result.rows_out = con.execute(
         f"SELECT count(*) FROM read_parquet({lit(str(out / '**' / '*.parquet'))})"
@@ -392,9 +456,10 @@ def main(tables: list[str] | None = None) -> list[TableResult]:
     if unknown:
         raise SystemExit(f"Unknown tables: {sorted(unknown)}")
     con = connect(settings)
+    pii_key = pii_hash_key()
     results = []
     for t in order:
-        r = build_table(con, settings, contracts[t])
+        r = build_table(con, settings, contracts[t], pii_key)
         log.info(
             "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d nullified=%s",
             t,

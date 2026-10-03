@@ -39,8 +39,8 @@ derived:                       # columns computed in silver, not present in bron
   amount_usd_source: {type: VARCHAR, allowed: [source, usd_amount, booking_rate]}
 
 pii:
-  hash: [email]                # HMAC-SHA256 with PII_HASH_KEY
-  age_band: [date_of_birth]    # replaced by an age band
+  hash: [email]                # HMAC-SHA256 with PII_HASH_KEY, hex (also in quarantine)
+  age_band: [date_of_birth]    # dropped; derived `age_band` added instead
   free_text: [full_text]       # may contain PII, cannot be tokenized; documented only
 ```
 

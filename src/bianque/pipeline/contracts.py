@@ -132,6 +132,8 @@ def validate(contracts: dict[str, Contract]) -> list[str]:
                 if n not in cols:
                     errors.append(f"{c.table}: {what} references unknown column {n!r}")
 
+        if c.pii_age_band and (len(c.pii_age_band) > 1 or "age_band" not in c.derived):
+            errors.append(f"{c.table}: pii.age_band needs one column and a derived age_band")
         for name in set(c.derived) & cols:
             errors.append(f"{c.table}: derived column {name!r} is also a source column")
         if c.kind not in KINDS:

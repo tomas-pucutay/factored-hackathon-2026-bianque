@@ -47,3 +47,7 @@ foreign_keys:
 pii:
   hash: [document_number, first_name, last_name, email, mobile_phone, landline_phone, address]
   age_band: [date_of_birth]
+
+derived:
+  # Replaces date_of_birth (PII): age at settings.silver.age_reference_date.
+  age_band: {type: VARCHAR, allowed: ["<18", 18-24, 25-34, 35-44, 45-54, 55-64, 65+]}

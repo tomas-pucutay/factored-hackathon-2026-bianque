@@ -251,3 +251,94 @@ def test_table_sql_adds_derived_columns_and_is_checked(tmp_path):
     (sql_dir / "t.sql").write_text("SELECT * FROM input")  # forgets the derived column
     with pytest.raises(ValueError, match=r"missing \['score_x2'\]"):
         build_table(con, settings, contract)
+
+
+@pytest.mark.parametrize("key", ["short-key", "k" * 64, "x" * 100])  # <, =, > one block
+@pytest.mark.parametrize("value", ["ana@mail.com", "Díaz Pérez", ""])
+def test_hmac_sql_matches_python_hmac(key, value):
+    import hashlib
+    import hmac
+
+    from bianque.pipeline.silver import hmac_sql
+
+    got = duckdb.sql(f"SELECT {hmac_sql('v', key)} FROM (SELECT ? AS v)", params=[value])
+    expected = hmac.new(key.encode(), value.encode(), hashlib.sha256).hexdigest()
+    assert got.fetchone()[0] == expected
+
+
+@pytest.mark.parametrize(
+    ("dob", "band"),
+    [
+        ("2008-06-18", "<18"),  # 17 the day before the 18th birthday
+        ("2008-06-17", "18-24"),
+        ("2001-06-18", "18-24"),
+        ("2001-06-17", "25-34"),
+        ("1961-06-17", "65+"),
+        (None, None),
+    ],
+)
+def test_age_band_at_reference_date(dob, band):
+    from datetime import date
+
+    from bianque.pipeline.silver import age_band_sql
+
+    expr = age_band_sql("d", date(2026, 6, 17), (18, 25, 35, 45, 55, 65))
+    got = duckdb.sql(f"SELECT {expr} FROM (SELECT ?::DATE AS d)", params=[dob]).fetchone()[0]
+    assert got == band
+
+
+PII_CONTRACT = parse_contract(
+    {
+        "table": "p",
+        "kind": "dimension",
+        "primary_key": ["id"],
+        "dedupe_order": ["_ingested_at DESC"],
+        "columns": {
+            "id": {"type": "VARCHAR", "nullable": False},
+            "email": {"type": "VARCHAR"},
+            "date_of_birth": {"type": "DATE"},
+            "score": {"type": "INTEGER"},
+        },
+        "derived": {"age_band": {"type": "VARCHAR"}},
+        "pii": {"hash": ["email"], "age_band": ["date_of_birth"]},
+    }
+)
+
+
+def test_pii_is_removed_from_silver_and_quarantine(tmp_path):
+    import hashlib
+    import hmac
+
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    cols = ["id", "email", "date_of_birth", "score"]
+    rows = [("ok", "ana@mail.com", "1990-01-01", "1.0"), ("bad", "bob@mail.com", "1980-01-01", "x")]
+    write_bronze(tmp_path, "p", "f", rows, cols)
+
+    con = connect(settings)
+    build_table(con, settings, PII_CONTRACT, pii_key="secret")
+
+    token = hmac.new(b"secret", b"ana@mail.com", hashlib.sha256).hexdigest()
+    silver = f"'{tmp_path}/silver/p/*.parquet'"
+    assert "date_of_birth" not in con.sql(f"SELECT * FROM {silver}").columns
+    assert con.sql(f"SELECT id, email, age_band FROM {silver}").fetchall() == [
+        ("ok", token, "35-44")
+    ]
+
+    quarantine = f"'{tmp_path}/silver/_quarantine/p/*.parquet'"
+    assert "date_of_birth" not in con.sql(f"SELECT * FROM {quarantine}").columns
+    assert con.sql(f"SELECT id, email, age_band FROM {quarantine}").fetchall() == [
+        ("bad", hmac.new(b"secret", b"bob@mail.com", hashlib.sha256).hexdigest(), "45-54")
+    ]
+
+
+def test_pii_contract_without_key_fails(tmp_path):
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    write_bronze(
+        tmp_path, "p", "f", [("a", None, None, None)], ["id", "email", "date_of_birth", "score"]
+    )
+    with pytest.raises(ValueError, match="need a hash key"):
+        build_table(connect(settings), settings, PII_CONTRACT)

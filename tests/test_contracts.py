@@ -75,3 +75,9 @@ def test_validate_catches_broken_references(overrides, error):
 def test_derived_column_cannot_shadow_a_source_column():
     contract = parse_contract(_minimal(derived={"id": {"type": "VARCHAR"}}))
     assert any("also a source column" in e for e in validate({"t": contract}))
+
+
+def test_age_band_requires_a_derived_column():
+    raw = _minimal(columns={"id": {"type": "VARCHAR"}, "dob": {"type": "DATE"}})
+    contract = parse_contract({**raw, "pii": {"age_band": ["dob"]}})
+    assert any("derived age_band" in e for e in validate({"t": contract}))
