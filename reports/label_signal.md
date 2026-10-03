@@ -10,6 +10,7 @@ data.
 | Question | Answer | Evidence |
 |----------|--------|----------|
 | Is `fraud_score` a copy of the label? | **No.** ROC-AUC 0.71–0.72 (0.82–0.86 where it exists) | §2 |
+| Is that ROC-AUC low? | **No: it is the ceiling.** No ranking of this data can exceed 0.83 / 0.86 on scored rows; precision is 100% above score 30 | §2b |
 | Can a model learn fraud from behavior? | **No.** PR-AUC equals the base rate; inside the permutation null (p = 0.38) | §2, §3 |
 | Does behavior add anything to `fraud_score`? | **No.** Every single-feature addition is within noise; the full combination is worse | §2, §4 |
 | Is there a text label for an intent classifier? | **No.** 42 distinct customer texts, a text model equals the majority class, `detected_intents` is constant | §5 |
@@ -68,6 +69,29 @@ Reading it:
 - The ROC-AUC of the combined model is higher than the score's with NULL as 0 (0.80 vs 0.71)
   only because a tree can rank unscored rows by their own base rate instead of placing them
   at 0; PR-AUC, which is what matters at a 0.1% base rate, does not improve.
+
+## 2b. The score is at the ceiling
+
+ROC-AUC averages over every threshold, including the range where fraud and legitimate
+transactions cannot be told apart. The data sets a hard ceiling:
+
+| Split | Max legitimate score | Scored frauds | Separable (score above it) | ROC-AUC ceiling | fraud_score |
+|---|---:|---:|---:|---:|---:|
+| validation | 30.00 | 562 | 0.667 | 0.8336 | 0.8232 |
+| test | 30.00 | 479 | 0.724 | 0.8622 | 0.8557 |
+
+- **No legitimate transaction scores above 30.00**, so every scored fraud above it is
+  separable, with 100% precision.
+- **Frauds at or below 30.00 look exactly like legitimate transactions:** both are uniform
+  on [0, 30] (§2: behavior does not separate them either). On those, the best possible
+  ranking is chance (0.5).
+- Ceiling = separable + (1 − separable) / 2. `fraud_score` is 0.006–0.010 below it,
+  only because of ties and noise.
+- The 20% of transactions without a score add frauds that nothing can rank, which is why
+  the ROC-AUC over all rows drops to 0.71–0.72.
+
+Precision is what matters for contacting customers. At 0.09% fraud, a score above 30 is a
+lift of about 1,000× over the base rate.
 
 ## 3. Behavioral model vs chance
 
