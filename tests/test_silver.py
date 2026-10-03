@@ -141,3 +141,25 @@ def test_build_table_writes_valid_rows_and_quarantines_bad_ones(tmp_path):
         f"SELECT id, _reason FROM '{tmp_path}/silver/_quarantine/t/*.parquet'"
     ).fetchall()
     assert reason == [("b", "cast:score")]
+
+
+def test_dedupe_keeps_latest_ingested_row(tmp_path):
+    import pandas as pd
+
+    from bianque.pipeline.silver import build_table, connect
+
+    settings = make_settings(tmp_path)
+    cols = ["id", "score", "amount", "active", "country", "langs"]
+    write_bronze(tmp_path, "t", "old", [("a", "1.0", None, None, None, None)], cols)
+    write_bronze(tmp_path, "t", "new", [("a", "2.0", None, None, None, None)], cols)
+    # Make "new" the later ingestion
+    path = tmp_path / "bronze" / "t" / "new.parquet"
+    df = pd.read_parquet(path)
+    df["_ingested_at"] = pd.Timestamp("2026-10-02", tz="UTC")
+    df.to_parquet(path, index=False)
+
+    con = connect(settings)
+    result = build_table(con, settings, CONTRACT)
+
+    assert (result.rows_in, result.duplicates, result.rows_out) == (2, 1, 1)
+    assert con.sql(f"SELECT score FROM '{tmp_path}/silver/t/*.parquet'").fetchall() == [(2,)]

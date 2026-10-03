@@ -134,11 +134,22 @@ def typed_select(contract: Contract, source: str, extra_columns: list[str] = ())
     return f"SELECT {', '.join(selects)}, {errors} AS _errors FROM {source}"
 
 
+def dedupe_select(contract: Contract, source: str) -> str:
+    """Keep one row per primary key: the first by the contract's dedupe_order."""
+    pk = ", ".join(q(c) for c in contract.primary_key)
+    order = ", ".join(contract.dedupe_order)
+    return (
+        f"SELECT * EXCLUDE (_rn) FROM (SELECT *, row_number() OVER "
+        f"(PARTITION BY {pk} ORDER BY {order}) AS _rn FROM {source}) WHERE _rn = 1"
+    )
+
+
 @dataclass
 class TableResult:
     table: str
     rows_in: int = 0
     quarantined: int = 0
+    duplicates: int = 0
     rows_out: int = 0
 
 
@@ -213,11 +224,16 @@ def build_table(
         "CREATE OR REPLACE TEMP VIEW valid AS SELECT * EXCLUDE (_errors) FROM staged WHERE len(_errors) = 0"
     )
 
-    final = "valid"
-    write_parquet(
-        con, f"SELECT * FROM {final}", settings.silver_root / t, contract.partition_column
-    )
-    result.rows_out = con.execute(f"SELECT count(*) FROM {final}").fetchone()[0]
+    con.execute(f"CREATE OR REPLACE TEMP VIEW deduped AS {dedupe_select(contract, 'valid')}")
+
+    final = "deduped"
+    out = settings.silver_root / t
+    write_parquet(con, f"SELECT * FROM {final}", out, contract.partition_column)
+    # Count from the written files (Parquet metadata) instead of re-running the query.
+    result.rows_out = con.execute(
+        f"SELECT count(*) FROM read_parquet({lit(str(out / '**' / '*.parquet'))})"
+    ).fetchone()[0]
+    result.duplicates = result.rows_in - result.quarantined - result.rows_out
     con.execute("DROP TABLE staged")
     return result
 
@@ -233,7 +249,14 @@ def main(tables: list[str] | None = None) -> list[TableResult]:
     results = []
     for t in order:
         r = build_table(con, settings, contracts[t])
-        log.info("%-26s in=%10d quarantined=%8d out=%10d", t, r.rows_in, r.quarantined, r.rows_out)
+        log.info(
+            "%-26s in=%10d quarantined=%8d duplicates=%8d out=%10d",
+            t,
+            r.rows_in,
+            r.quarantined,
+            r.duplicates,
+            r.rows_out,
+        )
         results.append(r)
     return results
 
