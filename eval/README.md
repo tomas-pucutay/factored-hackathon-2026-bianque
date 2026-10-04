@@ -23,3 +23,18 @@ Out-of-time slices of `gold.transaction_features`, split on `process_date`:
   model version. Models train and calibrate on train only.
 
 Design rationale: [`docs/gold_design.md`](../docs/gold_design.md) §4.10.
+
+## Agent scenarios (`scenarios/`)
+
+`agent_scenarios_v1.yaml`: team-generated conversations (Portuguese is team-generated; the
+dataset is Spanish only) about real charges of the serving slice, chosen by role. Each states
+its expected outcome. Splits:
+
+| Split | Use | Scenarios |
+|---|---|---:|
+| `dev` | May be used while fixing the agent | 6 |
+| `heldout` | Written before the first run; run 1 is reported as run | 52 |
+| `heldout2` | Written after run 1's fixes, run once, to check they generalize | 22 |
+
+`make evaluate` runs them against the real agent and Gemini and writes
+`reports/agent_evaluation*.md`. Design: [`docs/agent_design.md`](../docs/agent_design.md) §9.

@@ -122,8 +122,14 @@ it to the conversation's own customer; the demo page shows it.
 | `tests/test_agent.py` | The three paths, Portuguese, handoff package, injection, high amount, repeat complainer, no session, another customer's charge, retries then handoff, model down, reactive single and multiple matches, closed conversations |
 | `tests/test_api_conversations.py` | Full conversation over HTTP, test sessions, no session, another customer's conversation |
 
-The agent evaluation (Spanish, Portuguese and adversarial scenarios, with the brief's metrics)
-is the next step.
+The agent evaluation runs the real agent with Gemini on team-generated scenarios
+([`eval/README.md`](../eval/README.md)) and reports the brief's metrics
+([`reports/agent_evaluation.md`](../reports/agent_evaluation.md)). Its first heldout run found
+four bugs that the tests above did not cover, all in how the workflow used the model's output:
+a yes/no labeled out of scope, the "1 / 2" menu unknown to the model, a stated intent lost
+after a charge was not found, and a denied session handed to a human. Each now has a
+regression test in `tests/test_agent.py`. The lesson: unit tests with a scripted model check
+the workflow's logic; only the real model shows how it actually labels messages.
 
 ## 10. Limitations
 

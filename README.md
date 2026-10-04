@@ -3,7 +3,7 @@ The best complaint is the one that never arrives. Proactive AI customer service 
 
 **Live demo:** [https://bianque-api-280716480355.us-central1.run.app](https://bianque-api-280716480355.us-central1.run.app): pick a flagged charge, answer as the customer in Spanish or Portuguese, and see the policy decision, the verified actions, the handoff and the audit log. API: [`/docs`](https://bianque-api-280716480355.us-central1.run.app/docs), [`/health`](https://bianque-api-280716480355.us-central1.run.app/health). It scales to zero, so the first request after a while takes a few extra seconds.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). So is the contact policy (versioned YAML, rule-based engine, comparison on the frozen sets). So is the agent (LangGraph state machine, Gemini for understanding, permissioned tools, handoff, audit log), deployed on Google Cloud Run with a demo page. The quality report and the agent evaluation are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). So is the contact policy (versioned YAML, rule-based engine, comparison on the frozen sets). So is the agent (LangGraph state machine, Gemini for understanding, permissioned tools, handoff, audit log), deployed on Google Cloud Run with a demo page. So is the agent evaluation (Spanish, Portuguese and adversarial scenarios with the brief's metrics). The quality report is not implemented yet.
 
 ## Requirements
 
@@ -204,6 +204,30 @@ A [LangGraph](https://langchain-ai.github.io/langgraph/) state machine runs the 
 
 Design and operation: [`docs/agent_design.md`](docs/agent_design.md).
 
+### Agent evaluation
+
+```bash
+make evaluate   # contact policies, then the agent scenarios against the real agent and Gemini
+```
+
+[`eval/scenarios/agent_scenarios_v1.yaml`](eval/scenarios/agent_scenarios_v1.yaml) holds team-generated conversations about real charges of the serving slice: normal resolution in Spanish and Portuguese, reactive requests, ambiguous and multilingual messages, unsupported requests, policy escalations, prompt injection, expired or missing sessions, another customer's session, tool and model failures, and missing data. Each scenario states its expected outcome; unsafe outcomes (unauthorized actions or disclosures, materially wrong outcomes, unverified claims) are checked automatically.
+
+| Offline evaluation | Run 1 (first heldout run) | Run 2 (after fixes) | Heldout 2 (new set, run once) |
+|---|---:|---:|---:|
+| Correct outcome | 44 / 52 | 52 / 52 | 22 / 22 |
+| Safe automated resolution (all in-scope cases) | 20 / 49 | 27 / 49 | 12 / 20 |
+| Eligible cases resolved safely | 20 / 27 | 27 / 27 | 12 / 12 |
+| Unsafe outcomes (95% upper bound) | 2 / 52 (13.2%) | 0 / 52 (5.8%) | 0 / 22 (13.6%) |
+| Missed / unnecessary transfers | 0 / 1 | 0 / 0 | 0 / 0 |
+| Turn latency p50 / p95 (in-process) | 1.25 / 2.08 s | 1.26 / 1.68 s | 1.24 / 1.63 s |
+
+- **Run 1 found four agent bugs**, including two unsafe outcomes: the model did not know the "1 / 2" menu, so a customer's "2" (not mine) followed by "sí" closed a disputed charge as legitimate. Each bug was fixed with a regression test. Run 1 stays reported as run ([`reports/agent_evaluation_run1.md`](reports/agent_evaluation_run1.md)).
+- **Run 2 is no longer a clean heldout measurement**, because the fixes were informed by run 1. A second heldout set, written after the fixes and run once, checks that they generalize.
+- **Cost:** about USD 0.16–0.19 per attempted case, mostly the alert channel and USD 1.11 per human handoff; the model costs a fraction of a cent per turn (assumed prices, [`policies/llm_cost_assumptions_v1.yaml`](policies/llm_cost_assumptions_v1.yaml)).
+- **Samples are small:** 0 unsafe outcomes in 52 cases means at most 5.8% with 95% confidence, not zero risk. By language: Spanish 38 cases, Portuguese 14 (team-generated).
+
+Reports: [`reports/agent_evaluation.md`](reports/agent_evaluation.md) (run 2, with the run history), [`reports/agent_evaluation_heldout2.md`](reports/agent_evaluation_heldout2.md).
+
 ## Deployment: Google Cloud Run
 
 The API runs on [Cloud Run](https://bianque-api-280716480355.us-central1.run.app/health): Cloud Build builds the [`Dockerfile`](Dockerfile) remotely and the service scales to zero when idle, within the free tier.
@@ -251,6 +275,7 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
 | [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines on the frozen sets, net benefit with bootstrap intervals, results by group (`make train`) |
 | [`reports/model_search.md`](reports/model_search.md) | Tuned ML (Bayesian optimization, random search) with and without `fraud_score` vs the calibrator (`make model-search`) |
+| [`reports/agent_evaluation.md`](reports/agent_evaluation.md) | Agent evaluation with the brief's metrics: safe automated resolution, containment, escalation quality, unsafe outcomes with bounds, latency, cost, by language and segment (`make evaluate`) |
 | [`reports/policy_comparison.md`](reports/policy_comparison.md) | Contact policies on the frozen sets: frauds caught, false alerts, human cases, net benefit, break-even friction, results by group (`make evaluate`) |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
 | [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
@@ -276,8 +301,8 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 |------|---------|--------------|
 | Data | `make pipeline` | bronze (done) → silver (done) → gold (done) → quality report |
 | Model | `make train` | fit the fraud calibrator, compare with baselines, log to MLflow (done) |
-| Eval | `make evaluate` | compare contact policies and run agent evaluation |
+| Eval | `make evaluate` | compare contact policies and run the agent evaluation (done) |
 | Serve | `make serve` | run the FastAPI app locally |
 | Deploy | `make deploy` | build and deploy the API to Google Cloud Run (done) |
 
-The quality report and the agent evaluation are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report is still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.

@@ -8,4 +8,5 @@ is never edited; a change is a new file, and the active version is chosen in
 | File | What it defines | Used by |
 |------|-----------------|---------|
 | `cost_assumptions_v1.yaml` | Cost per service contact by interaction type; friction cost of contacting a legitimate customer | `gold.service_cost_baseline`, the expected-value contact rule |
+| `llm_cost_assumptions_v1.yaml` | Assumed Gemini prices per million tokens (from third-party listings; verify against Google's pricing) | The cost per case in the agent evaluation |
 | `contact_policy_v1.yaml` | When to contact proactively (minimum probability, expected value, abstention, contact cap), which channel, when a human takes the case, and what each action requires | `bianque.policy.engine`, the API, `make evaluate` |
