@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Deploy the API to Google Cloud Run (make deploy).
 #
-# Reads only the GCP_* variables from .env (never exports the other secrets), checks the
-# serving slice exists, and builds the image remotely with Cloud Build from the files allowed
-# by .gcloudignore. Prints the service URL at the end.
+# Reads only the GCP_* variables and GEMINI_MODEL from .env (never exports the secrets),
+# checks the serving slice exists, and builds the image remotely with Cloud Build from the
+# files allowed by .gcloudignore. Secrets (GEMINI_API_KEY, SESSION_SECRET) come from Secret
+# Manager at runtime (make deploy-secrets). Prints the service URL at the end.
 set -euo pipefail
 
 if [[ -f .env ]]; then
     while IFS='=' read -r key value; do
         export "$key=$value"
-    done < <(grep -E '^GCP_[A-Z_]+=' .env)
+    done < <(grep -E '^(GCP_[A-Z_]+|GEMINI_MODEL)=' .env)
 fi
 : "${GCP_PROJECT_ID:?set GCP_PROJECT_ID in .env (see .env.example)}"
 REGION="${GCP_REGION:-us-central1}"
@@ -32,6 +33,8 @@ gcloud run deploy "$SERVICE" \
     --max-instances 2 \
     --concurrency 40 \
     --timeout 60 \
+    --set-env-vars "GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash-lite}" \
+    --set-secrets "GEMINI_API_KEY=gemini-api-key:latest,SESSION_SECRET=session-secret:latest" \
     --quiet
 
 gcloud run services describe "$SERVICE" --project "$GCP_PROJECT_ID" --region "$REGION" \
