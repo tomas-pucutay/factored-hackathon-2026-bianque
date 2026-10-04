@@ -21,6 +21,7 @@ PRODUCTS = {
         "Cuenta Corriente": "conta corrente",
     },
 }
+FEMININE_PT = {"Cuenta Ahorro", "Cuenta Corriente"}
 
 TEMPLATES = {
     "es": {
@@ -53,13 +54,13 @@ TEMPLATES = {
         "handed_off": "Tu caso ya está con un especialista del banco; te contactará pronto.",
     },
     "pt": {
-        "alert": "Olá. Vimos uma cobrança de USD {amount} em {merchant} no dia {date} no seu "
-        "{product}. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "alert": "Olá. Vimos uma cobrança de USD {amount} em {merchant} no dia {date} {in_product}. "
+        "Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
         "login_required": "Para proteger sua conta, preciso que você entre no app do banco. "
         "Depois disso, continuamos daqui.",
         "clarify_recognition": "Não ficou claro. Você reconhece a cobrança de USD {amount} em "
         "{merchant}? Responda 1 se foi você ou 2 se não reconhece.",
-        "clarify_block": "Você quer que eu bloqueie provisoriamente o seu {product}? "
+        "clarify_block": "Você quer que eu bloqueie provisoriamente {the_product}? "
         "Responda sim ou não.",
         "clarify_charge": "Para encontrar a cobrança, me diga o valor aproximado e a data.",
         "unsupported": "Só posso ajudar com cobranças que você não reconhece. Para outros "
@@ -69,12 +70,12 @@ TEMPLATES = {
         "ask_recognition": "Encontrei a cobrança de USD {amount} em {merchant} no dia {date}. "
         "Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
         "ask_block": "Abri o caso {case_id} para a cobrança de USD {amount}. Você quer que eu "
-        "bloqueie provisoriamente o seu {product} para evitar novas cobranças? "
+        "bloqueie provisoriamente {the_product} para evitar novas cobranças? "
         "Responda sim ou não.",
-        "done_blocked": "Pronto. Seu caso {case_id} está aberto e o seu {product} foi "
-        "bloqueado provisoriamente (bloqueio {block_id}). Avisaremos quando for resolvido.",
-        "done_not_blocked": "Pronto. Seu caso {case_id} está aberto; não bloqueamos o seu "
-        "{product}. Avisaremos quando for resolvido.",
+        "done_blocked": "Pronto. Seu caso {case_id} está aberto e {the_product} foi "
+        "{blocked} provisoriamente (bloqueio {block_id}). Avisaremos quando for resolvido.",
+        "done_not_blocked": "Pronto. Seu caso {case_id} está aberto; não bloqueamos "
+        "{the_product}. Avisaremos quando for resolvido.",
         "legit_closed": "Obrigado por confirmar. Encerramos o alerta da cobrança de USD "
         "{amount}; você não precisa fazer mais nada.",
         "handoff": "Vou transferir você para um especialista do banco. Ele já tem o contexto "
@@ -98,9 +99,15 @@ def render(key: str, language: str, **facts: object) -> str:
 
 def charge_facts(charge, language: str) -> dict:
     """Template fields from a verified ChargeView."""
+    product = product_name(charge.product_type, language)
+    feminine = charge.product_type in FEMININE_PT
     return {
         "amount": f"{charge.amount_usd:,.2f}",
-        "merchant": charge.merchant or ("el comercio" if language == "es" else "o comércio"),
+        "merchant": charge.merchant or ("un comercio" if language == "es" else "um comércio"),
         "date": charge.transaction_date[:10],
-        "product": product_name(charge.product_type, language),
+        "product": product,
+        # Portuguese articles and agreement (Spanish templates use "tu {product}").
+        "in_product": f"na sua {product}" if feminine else f"no seu {product}",
+        "the_product": f"a sua {product}" if feminine else f"o seu {product}",
+        "blocked": "bloqueada" if feminine else "bloqueado",
     }
