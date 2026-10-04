@@ -1,0 +1,11 @@
+# Docker build context: allow-list, the same as .gcloudignore. .env and the lake stay out.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!configs/
+!policies/
+!models/
+!data/gold/serving/serving.duckdb
+**/__pycache__

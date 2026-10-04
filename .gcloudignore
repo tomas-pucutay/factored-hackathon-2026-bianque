@@ -1,0 +1,26 @@
+# Files uploaded by `gcloud run deploy --source .` (make deploy). Allow-list: everything is
+# excluded except what the API image needs, so .env, credentials and the rest of the lake
+# never leave this machine. Keep in sync with .dockerignore.
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/**
+!configs/
+!configs/**
+!policies/
+!policies/**
+!models/
+!models/**
+# A re-included folder brings all its contents back, so each level of data/ is narrowed again.
+!data/
+data/*
+!data/gold/
+data/gold/*
+!data/gold/serving/
+data/gold/serving/*
+!data/gold/serving/serving.duckdb
+**/__pycache__/
