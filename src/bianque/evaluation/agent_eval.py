@@ -445,7 +445,7 @@ def report(run_data: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--split", default="heldout", choices=["heldout", "dev"])
+    parser.add_argument("--split", default="heldout", choices=["heldout", "heldout2", "dev"])
     args = parser.parse_args()
     data = run(args.split)
     suffix = "" if args.split == "heldout" else f"_{args.split}"
