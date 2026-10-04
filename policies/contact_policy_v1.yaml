@@ -13,13 +13,27 @@
 version: contact_policy_v1
 cost_assumptions: cost_assumptions_v1  # friction cost of contacting a legitimate customer
 
+# Assumptions behind the thresholds (all SYNTHETIC; evidence in reports/policy_comparison.md):
+#   - Friction of alerting a legitimate customer: USD 2 (cost_assumptions_v1). At the scale of
+#     a retail bank a false alert is a short "was this you?" message answered with one tap;
+#     the comparison checks that the chosen threshold still holds between USD 1.50 and 2.50.
+#   - A contacted fraud's loss is fully avoided (the customer blocks the card in time).
+#   - A legitimate customer who answers "it's mine" closes the case without a human.
+#   - A human case costs one outbound agent call: USD 1.11 (gold.service_cost_baseline,
+#     Outbound Call, Transaccional: measured minutes x synthetic cost per minute).
+
 contact:
-  # Expected-value rule: contact only if p_fraud x amount_usd > channel cost + friction.
-  # Minimum probability on top of it: below this, a contact is a bet that annoying a
-  # legitimate customer costs less than the synthetic friction (docs/model_design.md §6).
-  min_p_fraud: 0.01
-  # Abstain (human review) when the credible interval of p_fraud straddles the break-even.
+  # Expected-value rule: contact only if p_fraud x amount_usd > channel cost + friction, so
+  # the probability threshold of a charge is (channel cost + friction) / amount: about 1.0
+  # for a USD 2 charge, 0.02 for USD 100, 0.0003 for USD 7,000. The floor below sits on top
+  # of it. On validation no floor beats the per-charge threshold at any friction between
+  # USD 1.50 and 2.50 (reports/policy_comparison.md), so it is 0: the rule alone decides.
+  min_p_fraud: 0.0
+  # Abstain (human review) when the credible interval of p_fraud straddles the break-even and
+  # the stake, (p_high - p_low) x amount, is worth a human review (about one agent call).
+  # Near-ties with a small stake are decided automatically: both choices cost about the same.
   abstain_when_interval_straddles: true
+  abstain_min_stake_usd: 1.11
   # At most one proactive contact per customer in this window; later flagged charges join
   # the open case instead of triggering another message.
   max_contacts_per_customer_hours: 24
@@ -37,8 +51,9 @@ channels:
     SMS: always
 
 escalation:
-  # The case goes to a human agent (routed by language and specialty) instead of the
-  # automated conversation when any of these holds.
+  # The alert itself is always automated. If the customer disputes the charge ("not mine"),
+  # the case goes to a human agent (routed by language and specialty) instead of Bianque when
+  # any of these holds.
   high_amount_usd: 5000           # about the top 10% of flagged charges
   repeat_complainer_365d: 2       # complaints in the last 365 days (about 1% of customers)
   on_abstain: true                # the model cannot tell (see contact)

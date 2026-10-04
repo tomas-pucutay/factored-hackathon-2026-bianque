@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -56,11 +57,19 @@ def test_customers_without_the_app_get_sms_never_email_or_untracked_channels():
     assert d.channel == "SMS"
 
 
-def test_low_probability_is_not_contacted_even_for_large_amounts():
-    d = decide(POLICY, Charge("t1", 9_000.0, 0.0003), APP_USER, CHANNELS)
+def test_large_amounts_clear_the_hurdle_even_at_low_probability():
+    d = decide(POLICY, Charge("t1", 9_000.0, 0.0003, 0.00028, 0.00033), APP_USER, CHANNELS)
 
-    assert d.action == "no_contact"
-    assert rules(d) == ["min_probability"]
+    assert d.action == "contact"  # 0.0003 x 9,000 = 2.70 > 2.0006
+    assert d.handled_by == "human"  # a dispute of USD 9,000 goes to an agent
+
+
+def test_minimum_probability_is_a_floor_on_top_of_the_rule():
+    floored = replace(POLICY, min_p_fraud=0.01)
+
+    d = decide(floored, Charge("t1", 9_000.0, 0.0003), APP_USER, CHANNELS)
+
+    assert (d.action, rules(d)) == ("no_contact", ["min_probability"])
 
 
 def test_expected_value_below_hurdle_is_not_contacted():
@@ -73,7 +82,14 @@ def test_interval_straddling_break_even_goes_to_human_review():
     d = decide(POLICY, Charge("t1", 100.0, 0.03, 0.01, 0.05), APP_USER, CHANNELS)
 
     assert (d.action, d.handled_by) == ("human_review", "human")
-    assert rules(d)[0] == "uncertain"
+    assert rules(d)[0] == "uncertain"  # stake (0.05 - 0.01) x 100 = 4.00 >= 1.11
+
+
+def test_near_tie_with_a_small_stake_is_decided_automatically():
+    # Straddles the hurdle, but (0.00033 - 0.00028) x 7,000 = 0.35 < 1.11: not worth a review.
+    d = decide(POLICY, Charge("t1", 7_000.0, 0.0003, 0.00028, 0.00033), APP_USER, CHANNELS)
+
+    assert d.action == "contact"
 
 
 def test_recent_contact_caps_a_new_message():

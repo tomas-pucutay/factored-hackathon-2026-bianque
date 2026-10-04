@@ -10,12 +10,14 @@ reasoning.
 
 Rules, in order:
   1. min_probability    p_fraud below the policy minimum: no contact.
-  2. uncertain          the credible interval of p straddles the break-even: human review.
+  2. uncertain          the credible interval of p straddles the break-even and the stake
+                        (interval width x amount) is worth a human review: human review.
   3. expected_value     p x amount <= channel cost + friction: no contact.
   4. contact_cap        the customer was contacted within the cap window: no new contact.
-  5. contact            otherwise contact, through the cheapest eligible real-time channel;
-                        handled by a human when the amount is high or the customer is a
-                        repeat complainer, by Bianque otherwise.
+  5. contact            otherwise contact, through the cheapest eligible real-time channel.
+                        The alert is always automated; handled_by says who resolves the case
+                        if the customer disputes the charge: a human when the amount is high
+                        or the customer is a repeat complainer, Bianque otherwise.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ class Policy:
     friction_usd: float
     min_p_fraud: float
     abstain_when_interval_straddles: bool
+    abstain_min_stake_usd: float
     max_contacts_per_customer_hours: float
     allowed_channels: tuple[str, ...]
     eligibility: dict[str, str]
@@ -65,6 +68,7 @@ def load_policy(path: Path, cost_assumptions_path: Path) -> Policy:
         friction_usd=float(costs["friction_cost_legit_usd"]),
         min_p_fraud=float(contact["min_p_fraud"]),
         abstain_when_interval_straddles=bool(contact["abstain_when_interval_straddles"]),
+        abstain_min_stake_usd=float(contact["abstain_min_stake_usd"]),
         max_contacts_per_customer_hours=float(contact["max_contacts_per_customer_hours"]),
         allowed_channels=tuple(channels["allowed"]),
         eligibility=dict(channels["eligibility"]),
@@ -173,6 +177,7 @@ def decide(
         and lo is not None
         and hi is not None
         and lo * charge.amount_usd <= hurdle < hi * charge.amount_usd
+        and (hi - lo) * charge.amount_usd >= policy.abstain_min_stake_usd
     ):
         return done(
             "human_review",
@@ -180,7 +185,8 @@ def decide(
                 Reason(
                     "uncertain",
                     f"credible interval [{lo:.4f}, {hi:.4f}] x USD {charge.amount_usd:,.2f} "
-                    f"straddles the hurdle USD {hurdle:.2f}",
+                    f"straddles the hurdle USD {hurdle:.2f}; stake USD "
+                    f"{(hi - lo) * charge.amount_usd:,.2f} >= {policy.abstain_min_stake_usd:.2f}",
                 ),
                 ev,
             ],
