@@ -37,3 +37,10 @@ def test_health_is_degraded_without_the_slice(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"status": "degraded", "serving_slice": None}
+
+
+def test_demo_page_is_served():
+    response = TestClient(main.app).get("/")
+
+    assert response.status_code == 200
+    assert "Proactive inbox" in response.text

@@ -15,10 +15,12 @@ from pathlib import Path
 
 import duckdb
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 from bianque.api.conversations import router as conversations
 
 SERVING_DB = Path(os.getenv("SERVING_DB", "data/gold/serving/serving.duckdb"))
+DEMO_PAGE = Path(__file__).parent / "static" / "index.html"
 
 app = FastAPI(
     title="Bianque",
@@ -53,3 +55,9 @@ def health() -> dict:
     """Liveness plus what the service is running with. Degraded when the slice is missing."""
     info = slice_info(SERVING_DB)
     return {"status": "ok" if info else "degraded", "serving_slice": info}
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def demo_page() -> str:
+    """The demo page: proactive inbox, conversation and what happened under the hood."""
+    return DEMO_PAGE.read_text()
