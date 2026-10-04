@@ -17,7 +17,9 @@ in the instance's memory, so Cloud Run runs a single instance with session affin
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -27,6 +29,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from bianque.agent.graph import Agent
@@ -194,6 +197,52 @@ def send_message(
     _owner_check(conversation_id, token)
     state = get_agent().reply(conversation_id, token, body.message)
     return _out(conversation_id, state, started)
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _stream(conversation_id: str, token: str | None, message: str, reactive: bool):
+    """Server-sent events: one `step` per graph node as it finishes, the reply in `reply`
+    chunks, then `done` with the full turn (same body as the non-streaming endpoint)."""
+    started = time.monotonic()
+    try:
+        for kind, value in get_agent().stream_reply(conversation_id, token, message, reactive):
+            if kind == "step":
+                yield _sse("step", {"node": value})
+            else:
+                for chunk in re.findall(r"\S+\s*", value.get("reply", "")):
+                    yield _sse("reply", {"text": chunk})
+                yield _sse("done", _out(conversation_id, value, started).model_dump())
+    except Exception as e:  # the stream has started: report the error as an event
+        yield _sse("error", {"detail": f"{type(e).__name__}: {e}"})
+
+
+def _sse_response(events) -> StreamingResponse:
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/conversations/reactive/stream", tags=["conversations"])
+def start_reactive_stream(body: MessageIn, authorization: str | None = Header(None)):
+    """Streaming version of POST /conversations/reactive (server-sent events)."""
+    token = _token(authorization)
+    conversation_id = _register(token)
+    return _sse_response(_stream(conversation_id, token, body.message, reactive=True))
+
+
+@router.post("/conversations/{conversation_id}/messages/stream", tags=["conversations"])
+def send_message_stream(
+    conversation_id: str, body: MessageIn, authorization: str | None = Header(None)
+):
+    """Streaming version of POST /conversations/{id}/messages (server-sent events)."""
+    token = _token(authorization)
+    _owner_check(conversation_id, token)
+    return _sse_response(_stream(conversation_id, token, body.message, reactive=False))
 
 
 @router.post("/conversations/{conversation_id}/keepalive", tags=["conversations"])

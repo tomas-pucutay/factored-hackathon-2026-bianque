@@ -93,3 +93,44 @@ def test_idle_conversation_closes_and_keepalive_resets_the_timer(client, monkeyp
 
     assert late.status_code == 410 and "inactivity" in late.json()["detail"]
     assert client.post(f"/conversations/{cid}/keepalive", headers=auth).status_code == 410
+
+
+def sse_events(text):
+    import json
+
+    events = []
+    for block in text.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in block.splitlines())
+        events.append((lines["event"], json.loads(lines["data"])))
+    return events
+
+
+def test_streamed_turn_sends_steps_reply_chunks_and_the_final_turn(client):
+    auth = login(client, "CLI-A")
+    cid = client.post(
+        "/conversations/proactive", json={"transaction_id": "TX-A-FRAUD"}, headers=auth
+    ).json()["conversation_id"]
+
+    r = client.post(
+        f"/conversations/{cid}/messages/stream", json={"message": "no fui yo"}, headers=auth
+    )
+    events = sse_events(r.text)
+
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert [d["node"] for e, d in events if e == "step"] == ["understand", "dispute"]
+    done = events[-1]
+    assert done[0] == "done" and done[1]["stage"] == "await_block_confirmation"
+    assert "".join(d["text"] for e, d in events if e == "reply") == done[1]["reply"]
+
+
+def test_streamed_reactive_start(client):
+    auth = login(client, "CLI-A")
+
+    r = client.post(
+        "/conversations/reactive/stream",
+        json={"message": "no reconozco 120 de gasolinera"},
+        headers=auth,
+    )
+    done = sse_events(r.text)[-1][1]
+
+    assert [a["action"] for a in done["actions"]] == ["open_dispute"]
