@@ -378,6 +378,7 @@ make evaluate   # contact policies, then the agent scenarios against the real ag
 - **Run 2 is no longer a clean heldout measurement**, because the fixes were informed by run 1. A second heldout set, written after the fixes and run once, checks that they generalize.
 - **Cost:** about USD 0.16–0.19 per attempted case, mostly the alert channel and USD 1.11 per human handoff; the model costs a fraction of a cent per turn (assumed prices, [`policies/llm_cost_assumptions_v1.yaml`](policies/llm_cost_assumptions_v1.yaml)).
 - **Samples are small:** 0 unsafe outcomes in 52 cases means at most 5.8% with 95% confidence, not zero risk. By language: Spanish 38 cases, Portuguese 14 (team-generated).
+- **Versions and variability:** model `gemini-3.5-flash-lite` at temperature 0, scenarios `agent_scenarios_v1`, policy `contact_policy_v1`, extraction prompt in [`agent/llm.py`](src/bianque/agent/llm.py). Each set ran once, so repeated-run variability is **not measured**. Outcomes are checked deterministically against each scenario's expected outcome; no model judges the answers.
 
 Reports: [`reports/agent_evaluation.md`](reports/agent_evaluation.md) (run 2, with the run history), [`reports/agent_evaluation_heldout2.md`](reports/agent_evaluation_heldout2.md).
 
