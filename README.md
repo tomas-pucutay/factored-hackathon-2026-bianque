@@ -76,6 +76,7 @@ Sources: [`reports/data_quality.md`](reports/data_quality.md) (insights), gold `
 | Agent (LangGraph, Gemini, tools, handoff, audit) and demo | Done, deployed | [Agent](#agent-the-conversation-the-actions-and-the-handoff), ADR 0004 |
 | Agent evaluation | Done | [Agent evaluation](#agent-evaluation) |
 | Data quality checks and report | Done: 343 error checks pass, 1 known warning | [Data quality](#data-quality-checks-from-the-contracts) |
+| Disparities by age, segment and country | Done: no group differs reliably | [Disparities](#disparities-is-bianque-worth-more-or-riskier-for-some-customers) |
 
 ## How Bianque meets the brief
 
@@ -95,6 +96,25 @@ Sources: [`reports/data_quality.md`](reports/data_quality.md) (insights), gold `
 | Explanations from sources, policy rules and execution records | Policy decisions list their rules and numbers; audit log of every step |
 | Compare outcomes by language and segment, state sample limits, investigate disparities | [Disparities](#disparities-is-bianque-worth-more-or-riskier-for-some-customers) (age, segment, country, with tests); agent evaluation by language and segment |
 | Offline measurements, simulations and projections labeled | Every report states which it is |
+
+**By discipline** (the challenge's suggested tasks):
+
+| Discipline | Suggested task | Where |
+|---|---|---|
+| Artificial Intelligence | Production backend and structured JSON handoffs | FastAPI on Cloud Run with streaming and an audit log; handoff package as JSON ([Agent](#agent-the-conversation-the-actions-and-the-handoff), [Deployment](#deployment-google-cloud-run)) |
+| Machine Learning | LLM orchestration and prompt-injection defense | LangGraph state machine; Gemini limited to validated JSON on redacted, delimited text; injections flagged and unable to act (7 scenarios, no action triggered) |
+| Data Engineering | Strong ETL/ELT pipeline and customer record isolation | Bronze → silver → gold with contracts, lineage, quarantine, HMAC PII, late arrivals; signed sessions and ownership checks in the tools |
+| Data Analysis | Demand patterns and cost-per-resolution ROI | [The problem, in data](#the-problem-in-data), [data quality insights](reports/data_quality.md), [disparities](#disparities-is-bianque-worth-more-or-riskier-for-some-customers) |
+
+**Data provenance:**
+
+| Input | Kind |
+|---|---|
+| Bank tables (transactions, customers, complaints, interactions, campaigns...) | Organizer-provided dataset; personal data tokenized (HMAC) in silver, never sent to the model or published |
+| Costs per contact, false-alert friction, contact policy | Synthetic, versioned, labeled ([`policies/`](policies/README.md)) |
+| Gemini prices | Assumed from third-party listings ([`policies/llm_cost_assumptions_v1.yaml`](policies/llm_cost_assumptions_v1.yaml)) |
+| Conversations in the agent evaluation, all Portuguese material | Team-generated ([`eval/scenarios/`](eval/scenarios/agent_scenarios_v1.yaml)) |
+| Late-arrival test data | Team-generated fixture ([`fixtures/`](fixtures/README.md)) |
 
 ## Requirements
 
