@@ -30,10 +30,12 @@ def test_find_charges_matches_what_the_customer_described(tmp_path):
     tools = make_tools(tmp_path)
 
     by_amount = tools.find_charges(A, amount_usd=120.5)  # within 1%
+    rounded = tools.find_charges(A, amount_usd=46)  # USD 45.50, said as a round number
     by_date = tools.find_charges(A, on_date=date(2026, 6, 16))  # within a day
     by_merchant = tools.find_charges(A, merchant="gasolinera")
 
     assert [c.transaction_id for c in by_amount] == ["TX-A-FRAUD"]
+    assert [c.transaction_id for c in rounded] == ["TX-A-NORMAL"]
     assert [c.transaction_id for c in by_date] == ["TX-A-FRAUD"]
     assert [c.transaction_id for c in by_merchant] == ["TX-A-FRAUD"]
 

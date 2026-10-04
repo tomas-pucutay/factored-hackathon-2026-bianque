@@ -36,7 +36,10 @@ from bianque.policy.engine import (
 )
 
 RECENT_DAYS = 90
-AMOUNT_TOLERANCE = 0.01  # a mentioned amount matches within 1%
+# A mentioned amount matches within 1% or USD 1, whichever is larger: customers round
+# ("12 dólares" for USD 12.40).
+AMOUNT_TOLERANCE = 0.01
+AMOUNT_TOLERANCE_USD = 1.0
 
 
 class PermissionDenied(Exception):
@@ -147,9 +150,8 @@ class Tools:
         out = []
         for r in rows:
             amount = float(r["amount_usd"])
-            if amount_usd is not None and abs(amount - amount_usd) > AMOUNT_TOLERANCE * max(
-                amount_usd, 1.0
-            ):
+            tolerance = max(AMOUNT_TOLERANCE * (amount_usd or 0.0), AMOUNT_TOLERANCE_USD)
+            if amount_usd is not None and abs(amount - amount_usd) > tolerance:
                 continue
             if on_date is not None and abs((r["transaction_date"].date() - on_date).days) > 1:
                 continue
