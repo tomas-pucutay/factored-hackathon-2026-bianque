@@ -1,13 +1,16 @@
 # factored-hackathon-2026-bianque
 The best complaint is the one that never arrives. Proactive AI customer service for LATAM banking. It scores card charges for fraud, contacts customers only when expected loss outweighs channel cost, and resolves disputes in Spanish and Portuguese with verified actions and safe human handoff.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, MLflow). Quality report, policy, agent and API are not implemented yet.
+**Live API:** [https://bianque-api-280716480355.us-central1.run.app](https://bianque-api-280716480355.us-central1.run.app) ([`/health`](https://bianque-api-280716480355.us-central1.run.app/health), [`/docs`](https://bianque-api-280716480355.us-central1.run.app/docs)). It scales to zero, so the first request after a while takes a few extra seconds.
+
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). The API is deployed on Google Cloud Run with a health endpoint. Quality report, policy and agent are not implemented yet.
 
 ## Requirements
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - Docker (optional, for `make docker-build`)
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (only to deploy, `make deploy`)
 
 ## Setup
 
@@ -38,6 +41,9 @@ Run `make` or `make help` to list all commands.
 | `AWS__BUCKET_NAME` | Source bucket holding the CSVs under `data/` |
 | `LAKE_ROOT` | Local lake directory (default `data`, git-ignored) |
 | `PII_HASH_KEY` | Secret key for PII tokens in silver; keep it stable (changing it changes every token) |
+| `GCP_PROJECT_ID` | Google Cloud project to deploy to (`make deploy`) |
+| `GCP_REGION` | Cloud Run region (default `us-central1`) |
+| `GCP_SERVICE` | Cloud Run service name (default `bianque-api`) |
 
 If the key variables are empty, boto3 falls back to its default credential chain (`~/.aws`, SSO, instance role).
 
@@ -155,6 +161,36 @@ The signal gate showed that `fraud_score` already ranks at the ceiling the data 
 
 Design decisions, evaluation rigor and the net benefit metric: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md), [`reports/model_search.md`](reports/model_search.md).
 
+## Deployment: Google Cloud Run
+
+The API runs on [Cloud Run](https://bianque-api-280716480355.us-central1.run.app/health): Cloud Build builds the [`Dockerfile`](Dockerfile) remotely and the service scales to zero when idle, within the free tier.
+
+**One-time setup:**
+
+1. Create a Google Cloud project, link a billing account and set a budget alert (Billing → Budgets & alerts). Usage stays in the free tier.
+2. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), then log in and select the project:
+   ```bash
+   gcloud auth login
+   gcloud config set project <project-id>
+   ```
+3. Enable the APIs it needs:
+   ```bash
+   gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+   ```
+4. Set `GCP_PROJECT_ID` (and optionally `GCP_REGION`, `GCP_SERVICE`) in `.env`, as in `.env.example`.
+
+**Deploy** (after `make gold`, which builds the serving slice):
+
+```bash
+make deploy    # prints the service URL
+```
+
+- **The data stays out of git.** The serving slice (`data/gold/serving/serving.duckdb`: 300 customers, tokenized PII, no labels) is uploaded from your machine at deploy time and lives only in the private image.
+- **Only what the image needs leaves the machine.** [`.gcloudignore`](.gcloudignore) is an allow-list: code, configs, policies, the model file and the slice. `.env` and the rest of the lake are never uploaded. Check with `gcloud meta list-files-for-upload`.
+- **Secrets stay local.** [`scripts/deploy.sh`](scripts/deploy.sh) reads only the `GCP_*` lines of `.env`.
+- **Capacity limits:** at most 2 instances × 40 concurrent requests, 1 vCPU and 512 MiB each, 60 s timeout.
+- **The image has only the API's dependencies.** The `dev` and `ml` groups (MLflow, Optuna) are not installed.
+
 ## Documentation
 
 Design decisions are documented with their evidence and the alternatives that were rejected:
@@ -193,5 +229,6 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 | Model | `make train` | fit the fraud calibrator, compare with baselines, log to MLflow (done) |
 | Eval | `make evaluate` | compare contact policies and run agent evaluation |
 | Serve | `make serve` | run the FastAPI app locally |
+| Deploy | `make deploy` | build and deploy the API to Google Cloud Run (done) |
 
-The quality report, evaluation and serving modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report, policy, agent and evaluation modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
