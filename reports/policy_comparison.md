@@ -18,49 +18,50 @@ not a production result. Thresholds are compared on validation; test is reported
 
 ## fraud_validation: 743,934 transactions, 699 frauds
 
-| Policy | Contacts by Bianque | Cases for a human | Frauds caught | Legit contacted | Net benefit (USD) | Share of oracle | Automated share |
+| Policy | Automated alerts | Cases for a human | Frauds caught | Legit contacted | Net benefit (USD) | Share of oracle | Automated share |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | No proactive contact (status quo) | 0 | 0 | 0 | 0 | 0 | 0.000 | - |
 | EV rule only (no minimum, no abstention, no escalation, no cap) | 79,480 | 0 | 415 / 699 | 79,065 | 719,889 | 0.617 | 1.000 |
-| contact_policy_v1 without the minimum probability | 21,023 | 66,470 | 420 / 699 | 87,073 | 632,645 | 0.542 | 0.240 |
-| contact_policy_v1 | 338 | 37 | 375 / 699 | 0 | 632,826 | 0.543 | 0.901 |
+| contact_policy_v1 with a 0.01 floor (no false alerts) | 375 | 37 | 375 / 699 | 0 | 632,826 | 0.543 | 0.901 |
+| contact_policy_v1 | 79,100 | 58 | 412 / 699 | 78,688 | 700,301 | 0.600 | 0.999 |
 
 | Difference | USD | Bootstrap 95% |
 |---|---:|---|
-| contact_policy_v1 - EV rule only (no minimum, no abstention, no escalation, no cap) | -87,062 | [-165,342, -9,949] |
-| contact_policy_v1 - contact_policy_v1 without the minimum probability | +182 | [-77,561, +82,392] |
+| contact_policy_v1 - EV rule only (no minimum, no abstention, no escalation, no cap) | -19,588 | [-49,560, +687] |
+| contact_policy_v1 - contact_policy_v1 with a 0.01 floor (no false alerts) | +67,475 | [-11,727, +143,744] |
 
 ## fraud_test: 685,522 transactions, 603 frauds
 
-| Policy | Contacts by Bianque | Cases for a human | Frauds caught | Legit contacted | Net benefit (USD) | Share of oracle | Automated share |
+| Policy | Automated alerts | Cases for a human | Frauds caught | Legit contacted | Net benefit (USD) | Share of oracle | Automated share |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | No proactive contact (status quo) | 0 | 0 | 0 | 0 | 0 | 0.000 | - |
 | EV rule only (no minimum, no abstention, no escalation, no cap) | 73,117 | 0 | 380 / 603 | 72,737 | 590,189 | 0.619 | 1.000 |
-| contact_policy_v1 without the minimum probability | 19,302 | 61,330 | 383 / 603 | 80,249 | 515,913 | 0.541 | 0.239 |
-| contact_policy_v1 | 318 | 29 | 347 / 603 | 0 | 554,925 | 0.582 | 0.916 |
+| contact_policy_v1 with a 0.01 floor (no false alerts) | 347 | 29 | 347 / 603 | 0 | 554,925 | 0.582 | 0.916 |
+| contact_policy_v1 | 72,717 | 45 | 379 / 603 | 72,338 | 589,763 | 0.619 | 0.999 |
 
 | Difference | USD | Bootstrap 95% |
 |---|---:|---|
-| contact_policy_v1 - EV rule only (no minimum, no abstention, no escalation, no cap) | -35,265 | [-106,787, +29,627] |
-| contact_policy_v1 - contact_policy_v1 without the minimum probability | +39,012 | [-36,929, +105,816] |
+| contact_policy_v1 - EV rule only (no minimum, no abstention, no escalation, no cap) | -427 | [-2,854, +822] |
+| contact_policy_v1 - contact_policy_v1 with a 0.01 floor (no false alerts) | +34,838 | [-29,575, +111,379] |
 
 ## Choosing the minimum probability (validation)
 
-Every other rule as in the policy. Below the minimum, contacts are only worth it if
-annoying a legitimate customer costs less than the break-even friction.
+The expected-value rule already sets a threshold per charge: (channel cost + friction) /
+amount. The minimum is a floor on top of it. Every other rule as in the policy; net
+benefit at each friction near the assumed USD 2.
 
-| min_p_fraud | Frauds caught | Legit contacted | Net benefit (USD) | Break-even friction |
-|---:|---:|---:|---:|---:|
-| 0 | 420 / 699 | 87,073 | 632,645 | USD 2.00 |
-| 0.0005 | 406 / 699 | 40,928 | 657,640 | USD 2.61 |
-| 0.001 | 406 / 699 | 40,928 | 657,640 | USD 2.61 |
-| 0.01 | 375 / 699 | 0 | 632,826 | - |
-| 0.5 | 375 / 699 | 0 | 632,826 | - |
+| min_p_fraud | Frauds caught | Legit contacted | Net benefit at USD 1.50 | Net benefit at USD 2.00 | Net benefit at USD 2.50 |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 412 / 699 | 78,688 | **741,507** | **700,301** | **672,531** |
+| 0.0005 | 400 / 699 | 38,131 | 703,759 | 674,757 | 662,426 |
+| 0.001 | 400 / 699 | 38,131 | 703,759 | 674,757 | 662,426 |
+| 0.002 | 375 / 699 | 0 | 632,826 | 632,826 | 632,826 |
+| 0.01 | 375 / 699 | 0 | 632,826 | 632,826 | 632,826 |
+| 0.1 | 375 / 699 | 0 | 632,826 | 632,826 | 632,826 |
+| 0.5 | 375 / 699 | 0 | 632,826 | 632,826 | 632,826 |
 
-Break-even friction: the cost of contacting a legitimate customer at which a lower
-minimum ties with the policy's (0.01). Above it the policy's minimum wins;
-the assumption is USD 2.00. Against the EV rule only (validation):
-USD 3.10.
+Best minimum at USD 2.00: **0** (also the best, or tied, at every friction checked).
+The policy uses **0** (the chosen minimum).
 
 ## By group (test, `contact_policy_v1`)
 
@@ -71,18 +72,18 @@ team-generated conversations (agent evaluation).
 
 | Group | Value | Transactions | Frauds | Fraud recall | Legit contact rate | Human share |
 |---|---|---:|---:|---:|---:|---:|
-| segment | Basic | 410,170 | 357 | 0.583 | 0.000000 | 0.087 |
-| segment | Plus | 172,491 | 165 | 0.539 | 0.000000 | 0.079 |
-| segment | Premium | 68,719 | 45 | 0.622 | 0.000000 | 0.036 |
-| segment | Student | 34,142 | 36 | 0.611 | 0.000000 | 0.136 |
-| customer_country | Argentina | 136,071 | 127 | 0.598 | 0.000000 | 0.105 |
-| customer_country | Colombia | 206,025 | 163 | 0.552 | 0.000000 | 0.078 |
-| customer_country | Mexico | 343,426 | 313 | 0.578 | 0.000000 | 0.077 |
-| age_band | 18-24 | 44,354 | 37 | 0.486 | 0.000000 | 0.056 |
-| age_band | 25-34 | 107,914 | 108 | 0.639 | 0.000000 | 0.145 |
-| age_band | 35-44 | 108,971 | 100 | 0.510 | 0.000000 | 0.039 |
-| age_band | 45-54 | 109,473 | 102 | 0.520 | 0.000000 | 0.094 |
-| age_band | 55-64 | 109,137 | 90 | 0.611 | 0.000000 | 0.091 |
-| age_band | 65+ | 205,673 | 166 | 0.608 | 0.000000 | 0.059 |
+| segment | Basic | 410,170 | 357 | 0.647 | 0.105595 | 0.001 |
+| segment | Plus | 172,491 | 165 | 0.588 | 0.105469 | 0.001 |
+| segment | Premium | 68,719 | 45 | 0.644 | 0.105586 | 0.000 |
+| segment | Student | 34,142 | 36 | 0.611 | 0.106667 | 0.001 |
+| customer_country | Argentina | 136,071 | 127 | 0.630 | 0.105080 | 0.001 |
+| customer_country | Colombia | 206,025 | 163 | 0.632 | 0.106037 | 0.001 |
+| customer_country | Mexico | 343,426 | 313 | 0.626 | 0.105575 | 0.001 |
+| age_band | 18-24 | 44,354 | 37 | 0.541 | 0.104971 | 0.001 |
+| age_band | 25-34 | 107,914 | 108 | 0.667 | 0.105300 | 0.001 |
+| age_band | 35-44 | 108,971 | 100 | 0.640 | 0.106456 | 0.001 |
+| age_band | 45-54 | 109,473 | 102 | 0.578 | 0.105055 | 0.001 |
+| age_band | 55-64 | 109,137 | 90 | 0.633 | 0.106761 | 0.001 |
+| age_band | 65+ | 205,673 | 166 | 0.645 | 0.105164 | 0.000 |
 
-_Run time: 95 s_
+_Run time: 165 s_
