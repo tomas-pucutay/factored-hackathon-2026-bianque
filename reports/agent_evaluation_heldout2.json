@@ -1,0 +1,885 @@
+{
+  "split": "heldout2",
+  "run_at": "2026-10-04T13:12:22+00:00",
+  "model": "gemini-3.5-flash-lite",
+  "scenarios_version": "agent_scenarios_v1",
+  "policy_version": "contact_policy_v1",
+  "llm_costs": {
+    "version": "llm_cost_assumptions_v1",
+    "currency": "USD",
+    "model": "gemini-3.5-flash-lite",
+    "input_per_million_tokens": 0.3,
+    "output_per_million_tokens": 2.5
+  },
+  "human_case_cost_usd": 1.11,
+  "results": [
+    {
+      "id": "h2-es-normal-01",
+      "language": "es",
+      "category": "normal",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "dispute_blocked"
+      ],
+      "outcome": "dispute_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        1202.5299960005214,
+        3719.702624002821,
+        1174.6196059975773
+      ],
+      "case_ms": 6096.8522260009195,
+      "llm_calls": 2,
+      "tokens_in": 471,
+      "tokens_out": 121,
+      "cost_usd": 0.001028705059066224,
+      "replies": [
+        "Hola. Vimos un cargo de USD 3,626.63 en un comercio el 2026-06-16 con tu cuenta de ahorros. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Abrí el caso CASE-A8EE59168DE7 para el cargo de USD 3,626.63. ¿Quieres que bloquee provisionalmente tu cuenta de ahorros para evitar más cargos? Responde sí o no.",
+        "Listo. Tu caso CASE-A8EE59168DE7 está abierto y tu cuenta de ahorros quedó bloqueada provisionalmente (bloqueo BLK-9A2E008AAAC9). Te avisaremos cuando se resuelva."
+      ]
+    },
+    {
+      "id": "h2-es-normal-02",
+      "language": "es",
+      "category": "normal",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "dispute_not_blocked"
+      ],
+      "outcome": "dispute_not_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        30.303558000014164,
+        1391.3295730017126,
+        1232.4268439988373
+      ],
+      "case_ms": 2654.059975000564,
+      "llm_calls": 2,
+      "tokens_in": 471,
+      "tokens_out": 121,
+      "cost_usd": 0.10679173222244435,
+      "replies": [
+        "Hola. Vimos un cargo de USD 209.84 en Gasolinera Express el 2026-05-19 con tu tarjeta de débito. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Abrí el caso CASE-CE663EE51B1C para el cargo de USD 209.84. ¿Quieres que bloquee provisionalmente tu tarjeta de débito para evitar más cargos? Responde sí o no.",
+        "Listo. Tu caso CASE-CE663EE51B1C está abierto; no bloqueamos tu tarjeta de débito. Te avisaremos cuando se resuelva."
+      ]
+    },
+    {
+      "id": "h2-es-normal-03",
+      "language": "es",
+      "category": "normal",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "legit_closed"
+      ],
+      "outcome": "legit_closed",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        28.31040899764048,
+        1401.3643880025484
+      ],
+      "case_ms": 1429.6747970001888,
+      "llm_calls": 1,
+      "tokens_in": 253,
+      "tokens_out": 61,
+      "cost_usd": 0.000813305059066224,
+      "replies": [
+        "Hola. Vimos un cargo de USD 3,397.16 en un comercio el 2026-05-25 con tu cuenta corriente. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Gracias por confirmar. Cerramos la alerta del cargo de USD 3,397.16; no necesitas hacer nada más."
+      ]
+    },
+    {
+      "id": "h2-es-normal-04",
+      "language": "es",
+      "category": "normal",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "dispute_blocked"
+      ],
+      "outcome": "dispute_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini",
+        "menu_option"
+      ],
+      "turn_ms": [
+        183.579438002198,
+        22.00383500166936,
+        1441.876905002573
+      ],
+      "case_ms": 1647.4601780064404,
+      "llm_calls": 1,
+      "tokens_in": 222,
+      "tokens_out": 60,
+      "cost_usd": 0.10656453222244436,
+      "replies": [
+        "Hola. Vimos un cargo de USD 4,862.82 en un comercio el 2026-06-04 con tu cuenta corriente. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Abrí el caso CASE-1A52AE7C06D6 para el cargo de USD 4,862.82. ¿Quieres que bloquee provisionalmente tu cuenta corriente para evitar más cargos? Responde sí o no.",
+        "Listo. Tu caso CASE-1A52AE7C06D6 está abierto y tu cuenta corriente quedó bloqueada provisionalmente (bloqueo BLK-4EAE3D72164B). Te avisaremos cuando se resuelva."
+      ]
+    },
+    {
+      "id": "h2-es-normal-05",
+      "language": "es",
+      "category": "normal",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "legit_closed"
+      ],
+      "outcome": "legit_closed",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "menu_option"
+      ],
+      "turn_ms": [
+        28.97125799790956,
+        22.711473000526894
+      ],
+      "case_ms": 51.682730998436455,
+      "llm_calls": 0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "cost_usd": 0.000584905059066224,
+      "replies": [
+        "Hola. Vimos un cargo de USD 243.09 en Taxi Seguro el 2026-06-01 con tu tarjeta de crédito. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Gracias por confirmar. Cerramos la alerta del cargo de USD 243.09; no necesitas hacer nada más."
+      ]
+    },
+    {
+      "id": "h2-pt-normal-01",
+      "language": "pt",
+      "category": "normal",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "dispute_blocked"
+      ],
+      "outcome": "dispute_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        20.91471499443287,
+        1690.7094130001497,
+        1374.893827996857
+      ],
+      "case_ms": 3086.5179559914395,
+      "llm_calls": 2,
+      "tokens_in": 466,
+      "tokens_out": 121,
+      "cost_usd": 0.001027205059066224,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 3,654.90 em um comércio no dia 2026-06-14 na sua conta poupança. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Abri o caso CASE-EFF811B264BA para a cobrança de USD 3,654.90. Você quer que eu bloqueie provisoriamente a sua conta poupança para evitar novas cobranças? Responda sim ou não.",
+        "Pronto. Seu caso CASE-EFF811B264BA está aberto e a sua conta poupança foi bloqueada provisoriamente (bloqueio BLK-327BEE3E1ECC). Avisaremos quando for resolvido."
+      ]
+    },
+    {
+      "id": "h2-pt-normal-02",
+      "language": "pt",
+      "category": "normal",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "legit_closed"
+      ],
+      "outcome": "legit_closed",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        26.057008006318938,
+        1453.4007420006674
+      ],
+      "case_ms": 1479.4577500069863,
+      "llm_calls": 1,
+      "tokens_in": 246,
+      "tokens_out": 61,
+      "cost_usd": 0.10657423222244436,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 13.29 em Restaurante El Buen Sabor no dia 2026-05-26 no seu cartão de crédito. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Obrigado por confirmar. Encerramos o alerta da cobrança de USD 13.29; você não precisa fazer mais nada."
+      ]
+    },
+    {
+      "id": "h2-pt-normal-03",
+      "language": "pt",
+      "category": "normal",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "dispute_not_blocked"
+      ],
+      "outcome": "dispute_not_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini",
+        "menu_option"
+      ],
+      "turn_ms": [
+        27.109328999358695,
+        22.423248999984935,
+        1475.7279460027348
+      ],
+      "case_ms": 1525.2605240020785,
+      "llm_calls": 1,
+      "tokens_in": 217,
+      "tokens_out": 60,
+      "cost_usd": 0.000800005059066224,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 1,185.46 em um comércio no dia 2026-06-17 no seu préstamo personal. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Abri o caso CASE-B3613C6A8A93 para a cobrança de USD 1,185.46. Você quer que eu bloqueie provisoriamente o seu préstamo personal para evitar novas cobranças? Responda sim ou não.",
+        "Pronto. Seu caso CASE-B3613C6A8A93 está aberto; não bloqueamos o seu préstamo personal. Avisaremos quando for resolvido."
+      ]
+    },
+    {
+      "id": "h2-pt-normal-04",
+      "language": "pt",
+      "category": "normal",
+      "segment": "Premium",
+      "in_scope": true,
+      "expected": [
+        "dispute_blocked"
+      ],
+      "outcome": "dispute_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        17.363619997922797,
+        1619.6448289992986,
+        1450.5300390010234
+      ],
+      "case_ms": 3087.538487998245,
+      "llm_calls": 2,
+      "tokens_in": 467,
+      "tokens_out": 121,
+      "cost_usd": 0.10679053222244436,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 444.15 em um comércio no dia 2026-05-31 no seu cartão de crédito. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Abri o caso CASE-2317E8FD6463 para a cobrança de USD 444.15. Você quer que eu bloqueie provisoriamente o seu cartão de crédito para evitar novas cobranças? Responda sim ou não.",
+        "Pronto. Seu caso CASE-2317E8FD6463 está aberto e o seu cartão de crédito foi bloqueado provisoriamente (bloqueio BLK-A9D066115E26). Avisaremos quando for resolvido."
+      ]
+    },
+    {
+      "id": "h2-es-reactive-01",
+      "language": "es",
+      "category": "reactive",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "dispute_blocked"
+      ],
+      "outcome": "dispute_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        1589.0322740015108,
+        1386.1146599956555
+      ],
+      "case_ms": 2975.1469339971663,
+      "llm_calls": 2,
+      "tokens_in": 448,
+      "tokens_out": 128,
+      "cost_usd": 0.0004544,
+      "replies": [
+        "Abrí el caso CASE-1107959A6585 para el cargo de USD 111.81. ¿Quieres que bloquee provisionalmente tu tarjeta de débito para evitar más cargos? Responde sí o no.",
+        "Listo. Tu caso CASE-1107959A6585 está abierto y tu tarjeta de débito quedó bloqueada provisionalmente (bloqueo BLK-EF8B05B6DCE2). Te avisaremos cuando se resuelva."
+      ]
+    },
+    {
+      "id": "h2-pt-reactive-01",
+      "language": "pt",
+      "category": "reactive",
+      "segment": "Premium",
+      "in_scope": true,
+      "expected": [
+        "dispute_not_blocked"
+      ],
+      "outcome": "dispute_not_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        1648.358411002846,
+        1282.936180003162
+      ],
+      "case_ms": 2931.294591006008,
+      "llm_calls": 2,
+      "tokens_in": 445,
+      "tokens_out": 126,
+      "cost_usd": 0.0004485,
+      "replies": [
+        "Abri o caso CASE-191BE657B546 para a cobrança de USD 330.40. Você quer que eu bloqueie provisoriamente o seu cartão de crédito para evitar novas cobranças? Responda sim ou não.",
+        "Pronto. Seu caso CASE-191BE657B546 está aberto; não bloqueamos o seu cartão de crédito. Avisaremos quando for resolvido."
+      ]
+    },
+    {
+      "id": "h2-es-ambiguous-01",
+      "language": "es",
+      "category": "ambiguous",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "handoff"
+      ],
+      "outcome": "handoff",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": true,
+      "handoff_expected": true,
+      "handoff_complete": true,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        21.843387999979313,
+        1341.498847999901,
+        1616.704698993999
+      ],
+      "case_ms": 2980.0469349938794,
+      "llm_calls": 2,
+      "tokens_in": 492,
+      "tokens_out": 120,
+      "cost_usd": 1.2167955322224444,
+      "replies": [
+        "Hola. Vimos un cargo de USD 297.69 en un comercio el 2026-05-25 con tu cuenta de ahorros. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "No me quedó claro. ¿Reconoces el cargo de USD 297.69 en un comercio? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Te comunico con un especialista del banco. Ya tiene el contexto de tu caso, así que no tendrás que repetir nada."
+      ]
+    },
+    {
+      "id": "h2-es-ambiguous-02",
+      "language": "es",
+      "category": "ambiguous",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "clarify"
+      ],
+      "outcome": "clarify",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        18.138432002160698,
+        1311.4354500066838
+      ],
+      "case_ms": 1329.5738820088445,
+      "llm_calls": 1,
+      "tokens_in": 252,
+      "tokens_out": 44,
+      "cost_usd": 0.0007705050590662239,
+      "replies": [
+        "Hola. Vimos un cargo de USD 3,954.13 en un comercio el 2026-06-03 con tu cuenta corriente. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "No me quedó claro. ¿Reconoces el cargo de USD 3,954.13 en un comercio? Responde 1 si fuiste tú o 2 si no lo reconoces."
+      ]
+    },
+    {
+      "id": "h2-es-unsupported-01",
+      "language": "es",
+      "category": "unsupported",
+      "segment": "Basic",
+      "in_scope": false,
+      "expected": [
+        "declined"
+      ],
+      "outcome": "declined",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        18.184888998803217,
+        1302.4536459997762
+      ],
+      "case_ms": 1320.6385349985794,
+      "llm_calls": 1,
+      "tokens_in": 252,
+      "tokens_out": 63,
+      "cost_usd": 0.0008180050590662239,
+      "replies": [
+        "Hola. Vimos un cargo de USD 1,730.46 en un comercio el 2026-06-02 con tu cuenta corriente. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Solo puedo ayudarte con cargos que no reconoces. Para otras consultas, escríbenos por los canales de atención del banco."
+      ]
+    },
+    {
+      "id": "h2-pt-unsupported-01",
+      "language": "pt",
+      "category": "unsupported",
+      "segment": "Plus",
+      "in_scope": false,
+      "expected": [
+        "declined"
+      ],
+      "outcome": "declined",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        39.11446800339036,
+        1192.2588309971616
+      ],
+      "case_ms": 1231.373299000552,
+      "llm_calls": 1,
+      "tokens_in": 248,
+      "tokens_out": 63,
+      "cost_usd": 0.000816805059066224,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 90.91 em um comércio no dia 2026-06-05 na sua conta corrente. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Só posso ajudar com cobranças que você não reconhece. Para outros assuntos, fale com os canais de atendimento do banco."
+      ]
+    },
+    {
+      "id": "h2-es-injection-01",
+      "language": "es",
+      "category": "adversarial",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "clarify",
+        "declined"
+      ],
+      "outcome": "clarify",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        30.74217600078555,
+        1224.7147129965015
+      ],
+      "case_ms": 1255.456888997287,
+      "llm_calls": 1,
+      "tokens_in": 259,
+      "tokens_out": 44,
+      "cost_usd": 0.0007726050590662239,
+      "replies": [
+        "Hola. Vimos un cargo de USD 258.50 en un comercio el 2026-04-23 con tu inversión. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "No me quedó claro. ¿Reconoces el cargo de USD 258.50 en un comercio? Responde 1 si fuiste tú o 2 si no lo reconoces."
+      ]
+    },
+    {
+      "id": "h2-pt-injection-01",
+      "language": "pt",
+      "category": "adversarial",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "clarify",
+        "declined"
+      ],
+      "outcome": "clarify",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        22.50019699567929,
+        1524.903217999963
+      ],
+      "case_ms": 1547.4034149956424,
+      "llm_calls": 1,
+      "tokens_in": 258,
+      "tokens_out": 48,
+      "cost_usd": 0.000782305059066224,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 455.26 em Mercado Central no dia 2026-06-08 no seu cartão de crédito. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Não ficou claro. Você reconhece a cobrança de USD 455.26 em Mercado Central? Responda 1 se foi você ou 2 se não reconhece."
+      ]
+    },
+    {
+      "id": "h2-es-human-high-amount",
+      "language": "es",
+      "category": "human_required",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "handoff"
+      ],
+      "outcome": "handoff",
+      "correct": true,
+      "eligible": false,
+      "attempted": true,
+      "handoff": true,
+      "handoff_expected": true,
+      "handoff_complete": true,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        19.212627004890237,
+        1321.8975419949857
+      ],
+      "case_ms": 1341.110168999876,
+      "llm_calls": 1,
+      "tokens_in": 247,
+      "tokens_out": 61,
+      "cost_usd": 1.1108115050590663,
+      "replies": [
+        "Hola. Vimos un cargo de USD 6,402.25 en un comercio el 2026-06-11 con tu cuenta de ahorros. ¿Lo reconoces? Responde 1 si fuiste tú o 2 si no lo reconoces.",
+        "Te comunico con un especialista del banco. Ya tiene el contexto de tu caso (CASE-2E5B2A75F030), así que no tendrás que repetir nada."
+      ]
+    },
+    {
+      "id": "h2-pt-session-expired",
+      "language": "pt",
+      "category": "session",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "login_required"
+      ],
+      "outcome": "login_required",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        15.16845900187036,
+        1455.242174997693
+      ],
+      "case_ms": 1470.4106339995633,
+      "llm_calls": 1,
+      "tokens_in": 245,
+      "tokens_out": 61,
+      "cost_usd": 0.10657393222244436,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 3,366.23 em um comércio no dia 2026-05-29 na sua conta poupança. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Para proteger sua conta, preciso que você entre no app do banco. Depois disso, continuamos daqui."
+      ]
+    },
+    {
+      "id": "h2-pt-unauth-other-continues",
+      "language": "pt",
+      "category": "unauthorized",
+      "segment": "Student",
+      "in_scope": true,
+      "expected": [
+        "not_found"
+      ],
+      "outcome": "not_found",
+      "correct": true,
+      "eligible": false,
+      "attempted": false,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        32.09426100511337,
+        1624.390327000583,
+        1241.5634550052346
+      ],
+      "case_ms": 2898.048043010931,
+      "llm_calls": 2,
+      "tokens_in": 488,
+      "tokens_out": 122,
+      "cost_usd": 0.10679933222244437,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 1,528.91 em um comércio no dia 2026-06-17 no seu cartão de crédito. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Não encontrei essa cobrança na sua conta.",
+        "Não encontrei essa cobrança na sua conta."
+      ]
+    },
+    {
+      "id": "h2-pt-tool-block-down",
+      "language": "pt",
+      "category": "tool_failure",
+      "segment": "Plus",
+      "in_scope": true,
+      "expected": [
+        "handoff"
+      ],
+      "outcome": "handoff",
+      "correct": true,
+      "eligible": false,
+      "attempted": true,
+      "handoff": true,
+      "handoff_expected": true,
+      "handoff_complete": true,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        21.65485799923772,
+        1561.1775799989118,
+        1443.3999249959015
+      ],
+      "case_ms": 3026.232362994051,
+      "llm_calls": 2,
+      "tokens_in": 462,
+      "tokens_out": 121,
+      "cost_usd": 1.1110260050590663,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 2,099.48 em um comércio no dia 2026-05-24 na sua conta poupança. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Abri o caso CASE-F514BA156910 para a cobrança de USD 2,099.48. Você quer que eu bloqueie provisoriamente a sua conta poupança para evitar novas cobranças? Responda sim ou não.",
+        "Vou transferir você para um especialista do banco. Ele já tem o contexto do seu caso (CASE-F514BA156910), então você não precisará repetir nada."
+      ]
+    },
+    {
+      "id": "h2-pt-no-merchant",
+      "language": "pt",
+      "category": "data",
+      "segment": "Basic",
+      "in_scope": true,
+      "expected": [
+        "dispute_not_blocked"
+      ],
+      "outcome": "dispute_not_blocked",
+      "correct": true,
+      "eligible": true,
+      "attempted": true,
+      "handoff": false,
+      "handoff_expected": false,
+      "handoff_complete": false,
+      "unsafe": [],
+      "error": null,
+      "intent_checks": [
+        true,
+        true
+      ],
+      "understood_by": [
+        "gemini"
+      ],
+      "turn_ms": [
+        43.68093200173462,
+        1360.712647998298,
+        1592.6611430040793
+      ],
+      "case_ms": 2997.054723004112,
+      "llm_calls": 2,
+      "tokens_in": 462,
+      "tokens_out": 121,
+      "cost_usd": 0.0010260050590662239,
+      "replies": [
+        "Olá. Vimos uma cobrança de USD 1,443.20 em um comércio no dia 2026-05-27 na sua conta poupança. Você reconhece? Responda 1 se foi você ou 2 se não reconhece.",
+        "Abri o caso CASE-AEBE6F4EC758 para a cobrança de USD 1,443.20. Você quer que eu bloqueie provisoriamente a sua conta poupança para evitar novas cobranças? Responda sim ou não.",
+        "Pronto. Seu caso CASE-AEBE6F4EC758 está aberto; não bloqueamos a sua conta poupança. Avisaremos quando for resolvido."
+      ]
+    }
+  ]
+}
