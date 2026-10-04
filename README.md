@@ -169,17 +169,19 @@ make evaluate   # compare contact policies on the frozen sets (reports/policy_co
 
 The model only outputs a probability; [`policies/contact_policy_v1.yaml`](policies/contact_policy_v1.yaml) (versioned, labeled SYNTHETIC) decides, through [`bianque.policy.engine`](src/bianque/policy/engine.py), the same code the API uses. Every decision lists the rules that produced it, with their numbers:
 
-- **Contact** only when `p_fraud ≥ 0.01` and `p_fraud × amount > channel cost + friction`; **human review** when the model's credible interval straddles that break-even; at most **one proactive contact per customer per 24 h**.
+- **Contact** when `p_fraud × amount > channel cost + friction`: a probability threshold per charge, (channel cost + friction) / amount, with no extra floor (none beats it on validation at any friction from USD 1.50 to 2.50). **Human review** when the model's credible interval straddles that break-even and the stake is worth an agent call. At most **one proactive alert per customer per 24 h**.
 - **Channel:** Push for app users, otherwise SMS, the cheapest per message read among real-time channels (gold.channel_costs).
-- **A human handles the case** for amounts ≥ USD 5,000 or customers with ≥ 2 complaints in a year.
+- **Disputes go to a human** for amounts ≥ USD 5,000 or customers with ≥ 2 complaints in a year; alerts are always automated, and "it's mine" closes without a human.
 - **Actions** (dispute, provisional card block) need an authenticated session and the customer's answer; the block also needs explicit confirmation.
+- **Assumptions (synthetic):** a false alert costs a legitimate customer USD 2; a contacted fraud's loss is avoided; a human case costs one agent call (USD 1.11).
 
-| Validation (offline simulation) | Frauds caught | Legitimate customers contacted | Cases for a human | Net benefit (USD) |
+| Offline simulation | Frauds caught | Legitimate customers alerted | Cases for a human | Net benefit (USD) |
 |---|---:|---:|---:|---:|
-| Expected-value rule only | 415 / 699 | 79,065 | 0 | 719,889 |
-| **contact_policy_v1** | 375 / 699 | **0** | 37 | 632,826 |
+| Validation, `contact_policy_v1` | 412 / 699 | 78,688 | 58 | 700,301 |
+| Test, `contact_policy_v1` | 379 / 603 | 72,338 | 45 | 589,763 |
+| Test, with a 0.01 floor instead (no false alerts) | 347 / 603 | 0 | 29 | 554,925 |
 
-The policy gives up simulated net benefit to send no false fraud alerts; that pays as soon as a false alert costs a legitimate customer more than USD 3.10 ([ADR 0003](docs/adr/0003-contact-policy-v1.md)).
+The guardrails (abstention, escalation, cap) cost USD 427 on test against the bare expected-value rule and keep 99.9% of cases automated. Trade-offs and alternatives: [ADR 0003](docs/adr/0003-contact-policy-v1.md).
 
 ## Deployment: Google Cloud Run
 
