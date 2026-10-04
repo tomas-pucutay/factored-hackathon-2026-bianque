@@ -148,23 +148,30 @@ def decision_metrics(
     p: np.ndarray,
     costs: Costs,
     interval: tuple[np.ndarray, np.ndarray] | None = None,
+    weight: np.ndarray | None = None,
 ) -> dict[str, float]:
     """Outcome of the expected-value rule. With an interval, transactions whose credible
     interval straddles the break-even probability are counted as abstentions (to a human);
-    the rest are decided automatically."""
+    the rest are decided automatically. weight counts each row that many times (for data
+    with sampled negatives); by default every row counts once."""
+    w = np.ones(len(y)) if weight is None else np.asarray(weight, dtype=float)
     hurdle = costs.contact + costs.friction
     contact = p * amount > hurdle
     fraud = y == 1
     caught = contact & fraud
+
+    def count(mask: np.ndarray) -> int:
+        return round(float(w[mask].sum()))
+
     out = {
-        "contacts": int(contact.sum()),
-        "frauds": int(fraud.sum()),
-        "frauds_contacted": int(caught.sum()),
-        "legit_contacted": int((contact & ~fraud).sum()),
-        "fraud_loss_usd": float(amount[fraud].sum()),
-        "loss_avoided_usd": float(amount[caught].sum()),
-        "contact_cost_usd": float(contact.sum() * costs.contact),
-        "friction_usd": float((contact & ~fraud).sum() * costs.friction),
+        "contacts": count(contact),
+        "frauds": count(fraud),
+        "frauds_contacted": count(caught),
+        "legit_contacted": count(contact & ~fraud),
+        "fraud_loss_usd": float((w * amount)[fraud].sum()),
+        "loss_avoided_usd": float((w * amount)[caught].sum()),
+        "contact_cost_usd": float(w[contact].sum() * costs.contact),
+        "friction_usd": float(w[contact & ~fraud].sum() * costs.friction),
     }
     out["net_benefit_usd"] = out["loss_avoided_usd"] - out["contact_cost_usd"] - out["friction_usd"]
     out["recall"] = out["frauds_contacted"] / max(out["frauds"], 1)
@@ -172,8 +179,8 @@ def decision_metrics(
     if interval is not None:
         lo, hi = interval
         abstain = (lo * amount <= hurdle) & (hi * amount > hurdle)
-        out["abstained"] = int(abstain.sum())
-        out["frauds_abstained"] = int((abstain & fraud).sum())
+        out["abstained"] = count(abstain)
+        out["frauds_abstained"] = count(abstain & fraud)
     return out
 
 

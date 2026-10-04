@@ -51,3 +51,14 @@ def test_select_uses_validation_net_benefit_then_log_loss():
     results = {"a": r(100.0, 0.2, 999.0), "b": r(100.0, 0.1, 0.0), "c": r(50.0, 0.0, 0.0)}
 
     assert select(results) == "b"  # tie on net benefit; lower log loss; test ignored
+
+
+def test_decision_metrics_weights_sampled_rows():
+    y = np.array([1, 0])
+    amount = np.array([100.0, 100.0])
+    p = np.array([0.5, 0.5])  # both contacted
+
+    m = decision_metrics(y, amount, p, COSTS, weight=np.array([1.0, 10.0]))
+
+    assert (m["contacts"], m["legit_contacted"]) == (11, 10)
+    assert m["net_benefit_usd"] == pytest.approx(100.0 - 11 * 0.10 - 10 * 2.00)
