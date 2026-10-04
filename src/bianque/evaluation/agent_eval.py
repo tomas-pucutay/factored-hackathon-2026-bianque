@@ -316,7 +316,7 @@ def rate(k: int, n: int) -> str:
     return f"{k} / {n} ({k / n:.1%})" if n else "not defined (n = 0)"
 
 
-def report(run_data: dict) -> str:
+def report(run_data: dict, history: str = "") -> str:
     rs = run_data["results"]
     in_scope = [r for r in rs if r["in_scope"]]
     eligible = [r for r in in_scope if r["eligible"]]
@@ -356,6 +356,7 @@ def report(run_data: dict) -> str:
         "|---|---|---|",
         f"| Safe automated resolution | **{rate(len(safe_auto), len(in_scope))}** of in-scope cases "
         f"| Correct, policy-compliant automated outcome, no human, no unsafe outcome, over all {len(in_scope)} in-scope cases |",
+        f"| Of which eligible | {len(eligible)} in-scope cases whose correct outcome is an automated resolution; {rate(len(safe_auto), len(eligible))} of them resolved safely | The rest must not be automated: human required, no session, injection, ambiguous |",
         f"| Automation attempted | {rate(len(attempted), len(in_scope))} of in-scope cases | The agent took or completed an action |",
         f"| Correct outcome (any path) | {rate(sum(r['correct'] for r in rs), len(rs))} | Matches the scenario's expected outcome |",
         f"| Containment | {rate(len(contained), len(rs))} | Ended without a transfer (not proof of resolution) |",
@@ -422,6 +423,8 @@ def report(run_data: dict) -> str:
         lines.append(
             f"| {cat} | {len(g)} | {sum(r['correct'] for r in g)} / {len(g)} | {sum(bool(r['unsafe']) for r in g)} |"
         )
+    if history:
+        lines += ["", history.rstrip()]
     wrong = [r for r in rs if not r["correct"] or r["unsafe"] or r["error"]]
     lines += ["", "## Cases that did not match", ""]
     if not wrong:
@@ -446,14 +449,51 @@ def report(run_data: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--split", default="heldout", choices=["heldout", "heldout2", "dev"])
-    args = parser.parse_args()
-    data = run(args.split)
-    suffix = "" if args.split == "heldout" else f"_{args.split}"
-    REPORT.with_stem(REPORT.stem + suffix).write_text(report(data))
-    RESULTS.with_stem(RESULTS.stem + suffix).write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    parser.add_argument(
+        "--from-json", type=Path, help="rebuild a report from saved results, without rerunning"
     )
-    print(f"wrote {REPORT.with_stem(REPORT.stem + suffix)}")
+    args = parser.parse_args()
+    if args.from_json:
+        data = json.loads(args.from_json.read_text())
+        out = args.from_json.with_suffix(".md")
+    else:
+        data = run(args.split)
+        suffix = "" if args.split == "heldout" else f"_{args.split}"
+        out = REPORT.with_stem(REPORT.stem + suffix)
+        RESULTS.with_stem(RESULTS.stem + suffix).write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        )
+    out.write_text(report(data, history_note(data, out)))
+    print(f"wrote {out}")
+
+
+def history_note(data: dict, out: Path) -> str:
+    """For the heldout report after run 1: what run 1 found and what was fixed."""
+    first = RESULTS.with_stem(RESULTS.stem + "_run1")
+    if data["split"] != "heldout" or out.stem.endswith("_run1") or not first.exists():
+        return ""
+    r1 = json.loads(first.read_text())["results"]
+    bad = [r for r in r1 if not r["correct"] or r["unsafe"]]
+    unsafe = sum(bool(r["unsafe"]) for r in r1)
+    return f"""## Run history
+
+This is **run 2** of the heldout split. **Run 1** ([`agent_evaluation_run1.md`](agent_evaluation_run1.md),
+the first run, reported as run) had {sum(r["correct"] for r in r1)} / {len(r1)} correct outcomes and
+**{unsafe} unsafe outcomes**, from four agent bugs, each fixed with a regression test
+(`tests/test_agent.py`):
+
+| Bug in run 1 | Cases | Fix |
+|---|---|---|
+| The model labeled "sí, bloquéala" out of scope; the router declined before reading the yes / no | es-normal-01, 02, 06 | The answer to the block question decides first |
+| The model did not know the "1 / 2" menu: "2" (not mine) was unclear, and the next "sí" closed the charge as legitimate (**the 2 unsafe outcomes**) | es-normal-07, 08, pt-normal-06 | Menu digits are read without the model; the model's context explains the menu |
+| After a wrong amount, the customer's "no lo reconozco" was forgotten | es-reactive-wrong-amount | The stated intent is kept while the charge is searched |
+| Another customer's session reached a node that handed the conversation to a human | es-unauth-other-continues | "Not found" at every step |
+
+Because the fixes were informed by run 1's failures, run 2 is no longer a clean heldout
+measurement. A **second heldout set** written after the fixes and run once checks that they
+generalize: [`agent_evaluation_heldout2.md`](agent_evaluation_heldout2.md). Run 1 cases that
+did not match: {", ".join(r["id"] for r in bad)}.
+"""
 
 
 if __name__ == "__main__":
