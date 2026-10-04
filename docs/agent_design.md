@@ -105,7 +105,9 @@ it to the conversation's own customer; the demo page shows it.
 | Item | Value |
 |---|---|
 | Latency (production, server side) | About 0.1 s for the alert, 0.7–1.2 s per turn with Gemini |
-| Capacity | 5,000 conversations in memory per instance (503 beyond), 2 instances × 40 concurrent requests |
+| Capacity | One instance (conversation state lives in its memory; session affinity keeps a browser on it), 40 concurrent requests, 5,000 conversations in memory (503 beyond). Two instances lost conversations: a turn reached the instance that did not hold it |
+| Inactivity | A conversation closes after 180 s without a request (`CONVERSATION_IDLE_SECONDS`); then 410 Gone. Each turn returns the timeout; `POST /conversations/{id}/keepalive` resets it. The demo page counts down, warns 30 s before, and offers a restart |
+| Streaming | `POST .../messages/stream` and `POST /conversations/reactive/stream` send server-sent events: one `step` per graph node as it finishes (LangGraph `stream`), the reply in chunks, then the full turn |
 | Data retention | Cases and audit in SQLite on the instance's temporary disk: they last while the instance runs (demo). Production would use a managed database with a retention policy |
 | Secrets | `GEMINI_API_KEY` and `SESSION_SECRET` in Secret Manager (`make deploy-secrets`), never in code or the image |
 | Conversation state | LangGraph in-memory checkpointer: a conversation lives on the instance that started it |
@@ -125,7 +127,9 @@ is the next step.
 
 ## 10. Limitations
 
-- Conversations live in memory on one instance; a restart or scale-to-zero ends them.
+- Conversations live in memory on one instance; a restart, a redeploy or scale-to-zero ends
+  them (the demo page shows the conversation as closed and offers a restart). Scaling out
+  needs a shared checkpointer (for example LangGraph's Postgres saver).
 - Portuguese conversations are team-generated; the dataset's customers are all in
   Spanish-speaking countries.
 - A provisional block applies to the product of the charge (card or account); unblocking is

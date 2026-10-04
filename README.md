@@ -200,6 +200,7 @@ A [LangGraph](https://langchain-ai.github.io/langgraph/) state machine runs the 
 - **Only verified actions are reported:** every action is read back before the reply, and replies are Spanish or Portuguese templates filled with those values ([ADR 0004](docs/adr/0004-agent-replies-from-templates.md)).
 - **Three paths:** automated resolution; clarify or decline ambiguous and unsupported requests; a structured **handoff package** (request, verified facts, actions, evidence, open questions) routed by language and specialty for high amounts, repeat complainers, unclear intent and tool failures.
 - **Audit log** of every step: redacted message, extraction, policy rules, tool attempts, rejections, handoffs.
+- **Streaming:** each turn streams its progress node by node (server-sent events) and the reply as it is written; idle conversations close after 3 minutes, with a warning 30 seconds before.
 
 Design and operation: [`docs/agent_design.md`](docs/agent_design.md).
 
@@ -234,7 +235,7 @@ make deploy    # prints the service URL
 - **The data stays out of git.** The serving slice (`data/gold/serving/serving.duckdb`: 300 customers, tokenized PII, no labels) is uploaded from your machine at deploy time and lives only in the private image.
 - **Only what the image needs leaves the machine.** [`.gcloudignore`](.gcloudignore) is an allow-list: code, configs, policies, the model file and the slice. `.env` and the rest of the lake are never uploaded. Check with `gcloud meta list-files-for-upload`.
 - **Secrets stay out of the code and the image.** [`scripts/deploy.sh`](scripts/deploy.sh) reads only the `GCP_*` and `GEMINI_MODEL` lines of `.env`; `GEMINI_API_KEY` and `SESSION_SECRET` reach the service from Secret Manager.
-- **Capacity limits:** at most 2 instances × 40 concurrent requests, 1 vCPU and 512 MiB each, 60 s timeout.
+- **Capacity limits:** one instance with session affinity (conversations live in its memory), 40 concurrent requests, 1 vCPU and 512 MiB, 60 s timeout; a conversation closes after 3 minutes of inactivity.
 - **The image has only the API's dependencies.** The `dev` and `ml` groups (MLflow, Optuna) are not installed.
 
 ## Documentation
