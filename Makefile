@@ -4,7 +4,7 @@
 		format lint test check \
 		bronze-plan bronze silver gold quality pipeline \
 		label-signal train model-search evaluate \
-		serve docker-build \
+		serve docker-build deploy \
 		clean
 
 PY  := uv run python
@@ -78,6 +78,9 @@ serve: ## Run FastAPI locally with reload
 
 docker-build: ## Build Docker image
 	docker build -t $(PKG):latest .
+
+deploy: ## Deploy the API to Google Cloud Run (GCP_* in .env; needs make gold)
+	./scripts/deploy.sh
 
 # --- Housekeeping ------------------------------------------------------------
 
