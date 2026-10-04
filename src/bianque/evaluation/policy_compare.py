@@ -8,9 +8,10 @@ test is reported, never used to choose.
 OFFLINE SIMULATION. Assumptions, stated in the report:
   - A contacted fraud's loss is fully avoided; a contacted legitimate customer costs the
     synthetic friction.
-  - A case handled by a human (high amount, repeat complainer, human review) also costs one
-    outbound agent call: measured handle time x synthetic cost per minute
-    (gold.service_cost_baseline, Outbound Call, Transaccional).
+  - Alerts are automated. A legitimate customer answers "it's mine" and the case closes
+    without a human. A human costs one outbound agent call (measured handle time x synthetic
+    cost per minute, gold.service_cost_baseline, Outbound Call, Transaccional) for every human
+    review and for every dispute ("not mine", i.e. a fraud) the policy escalates.
   - Customer context (app user, complaints in 365 days) comes from gold.customer_360, a
     snapshot at the end of the data: it is used for routing and channel, not for detection.
 """
@@ -40,7 +41,8 @@ from bianque.policy.engine import (
 
 REPORT = Path("reports/policy_comparison.md")
 SETS = ("fraud_validation", "fraud_test")
-MIN_P_GRID = (0.0, 0.0005, 0.001, 0.01, 0.5)
+MIN_P_GRID = (0.0, 0.0005, 0.001, 0.002, 0.01, 0.1, 0.5)
+FRICTIONS = (1.5, 2.0, 2.5)  # "near USD 2": the chosen minimum must hold across this range
 GROUPS = ("segment", "customer_country", "age_band")
 N_BOOT = 1000
 SEED = 0
@@ -130,41 +132,37 @@ def simulate(
             channel_cost[i] = channels["SMS"].cost_per_delivered  # the agent contacts by phone
     touched = action != "no_contact"
     fraud = df["is_fraud"].to_numpy() == 1
-    human = handled == "human"
+    # A human works the case: every review, and every escalated dispute (frauds say "not mine").
+    human_case = (action == "human_review") | ((handled == "human") & fraud)
     value = (
         np.where(touched & fraud, amount, 0.0)
         - channel_cost
         - np.where(touched & ~fraud, policy.friction_usd, 0.0)
-        - np.where(human, human_cost, 0.0)
+        - np.where(human_case, human_cost, 0.0)
     )
     return pd.DataFrame(
-        {"action": action, "handled_by": handled, "fraud": fraud, "value": value, "amount": amount}
+        {
+            "action": action,
+            "human_case": human_case,
+            "fraud": fraud,
+            "value": value,
+            "amount": amount,
+        }
     )
 
 
 def summarize(sim: pd.DataFrame, oracle: float) -> dict:
     touched = sim.action != "no_contact"
     return {
-        "contacts_bianque": int(((sim.action == "contact") & (sim.handled_by == "bianque")).sum()),
-        "cases_human": int((sim.handled_by == "human").sum()),
+        "alerts": int((sim.action == "contact").sum()),
+        "cases_human": int(sim.human_case.sum()),
         "frauds": int(sim.fraud.sum()),
         "frauds_caught": int((touched & sim.fraud).sum()),
         "legit_contacted": int((touched & ~sim.fraud).sum()),
         "net_benefit": float(sim.value.sum()),
         "share_of_oracle": float(sim.value.sum() / oracle),
-        "automated_share": float(
-            ((sim.action == "contact") & (sim.handled_by == "bianque")).sum()
-            / max(touched.sum(), 1)
-        ),
+        "automated_share": float(1 - sim.human_case.sum() / max(touched.sum(), 1)),
     }
-
-
-def breakeven(alt: dict, chosen: dict, friction: float) -> str:
-    """Friction at which `alt` (more legitimate contacts) and `chosen` have equal net benefit."""
-    extra = alt["legit_contacted"] - chosen["legit_contacted"]
-    if extra <= 0:
-        return "-"
-    return f"USD {friction + (alt['net_benefit'] - chosen['net_benefit']) / extra:.2f}"
 
 
 def paired_bootstrap(
@@ -189,7 +187,7 @@ def main() -> None:
             v1, min_p_fraud=0.0, abstain_when_interval_straddles=False, high_amount_usd=never,
             repeat_complainer_365d=10**9, max_contacts_per_customer_hours=0.0,
         ),
-        f"{v1.version} without the minimum probability": replace(v1, min_p_fraud=0.0),
+        f"{v1.version} with a 0.01 floor (no false alerts)": replace(v1, min_p_fraud=0.01),
         f"{v1.version}": v1,
     }  # fmt: skip
     rng = np.random.default_rng(SEED)
@@ -220,7 +218,7 @@ def main() -> None:
         lines += [
             f"## {split}: {len(df):,} transactions, {int(df.is_fraud.sum())} frauds",
             "",
-            "| Policy | Contacts by Bianque | Cases for a human | Frauds caught | Legit contacted "
+            "| Policy | Automated alerts | Cases for a human | Frauds caught | Legit contacted "
             "| Net benefit (USD) | Share of oracle | Automated share |",
             "|---|---:|---:|---:|---:|---:|---:|---:|",
             "| No proactive contact (status quo) | 0 | 0 | 0 | 0 | 0 | 0.000 | - |",
@@ -230,7 +228,7 @@ def main() -> None:
             sims[split][name] = sim
             m = summarize(sim, oracle)
             lines.append(
-                f"| {name} | {m['contacts_bianque']:,} | {m['cases_human']:,} "
+                f"| {name} | {m['alerts']:,} | {m['cases_human']:,} "
                 f"| {m['frauds_caught']} / {m['frauds']} | {m['legit_contacted']:,} "
                 f"| {m['net_benefit']:,.0f} | {m['share_of_oracle']:.3f} | {m['automated_share']:.3f} |"
             )
@@ -244,41 +242,60 @@ def main() -> None:
             lines.append(f"| {names[-1]} - {other} | {diff:+,.0f} | [{lo:+,.0f}, {hi:+,.0f}] |")
         lines.append("")
 
-    # Minimum probability: sensitivity and break-even friction (validation only).
+    # Minimum probability: chosen on validation at the assumed friction, checked near it.
     val = frozen["fraud_validation"]
+    grid = {
+        (mp, f): summarize(
+            simulate(replace(v1, min_p_fraud=mp, friction_usd=f), val, model, channels, human_cost),
+            1.0,
+        )
+        for mp in MIN_P_GRID
+        for f in FRICTIONS
+    }
+    best = {f: max(MIN_P_GRID, key=lambda mp, f=f: grid[(mp, f)]["net_benefit"]) for f in FRICTIONS}
     lines += [
         "## Choosing the minimum probability (validation)",
         "",
-        "Every other rule as in the policy. Below the minimum, contacts are only worth it if",
-        "annoying a legitimate customer costs less than the break-even friction.",
+        "The expected-value rule already sets a threshold per charge: (channel cost + friction) /",
+        "amount. The minimum is a floor on top of it. Every other rule as in the policy; net",
+        "benefit at each friction near the assumed USD 2.",
         "",
-        "| min_p_fraud | Frauds caught | Legit contacted | Net benefit (USD) | Break-even friction |",
-        "|---:|---:|---:|---:|---:|",
+        "| min_p_fraud | Frauds caught | Legit contacted | "
+        + " | ".join(f"Net benefit at USD {f:.2f}" for f in FRICTIONS)
+        + " |",
+        "|---:|---:|---:|" + "---:|" * len(FRICTIONS),
     ]
-    grid = {
-        mp: summarize(simulate(replace(v1, min_p_fraud=mp), val, model, channels, human_cost), 1.0)
-        for mp in MIN_P_GRID
-    }
-    chosen = grid[v1.min_p_fraud]
-    for mp, g in grid.items():
+    for mp in MIN_P_GRID:
+        g = grid[(mp, v1.friction_usd)]
+        cells = " | ".join(
+            f"**{grid[(mp, f)]['net_benefit']:,.0f}**" if best[f] == mp
+            else f"{grid[(mp, f)]['net_benefit']:,.0f}"
+            for f in FRICTIONS
+        )  # fmt: skip
         lines.append(
-            f"| {mp:g} | {g['frauds_caught']} / {g['frauds']} | {g['legit_contacted']:,} "
-            f"| {g['net_benefit']:,.0f} | {breakeven(g, chosen, v1.friction_usd)} |"
+            f"| {mp:g} | {g['frauds_caught']} / {g['frauds']} | {g['legit_contacted']:,} | {cells} |"
         )
+    chosen = best[v1.friction_usd]
+    stable = all(
+        grid[(chosen, f)]["net_benefit"] == grid[(best[f], f)]["net_benefit"] for f in FRICTIONS
+    )
     lines += [
         "",
-        "Break-even friction: the cost of contacting a legitimate customer at which a lower",
-        f"minimum ties with the policy's ({v1.min_p_fraud:g}). Above it the policy's minimum wins;",
-        f"the assumption is USD {v1.friction_usd:.2f}. Against the EV rule only (validation):",
-        f"{breakeven(summarize(sims['fraud_validation'][names[0]], 1.0), chosen, v1.friction_usd)}.",
-    ]
+        f"Best minimum at USD {v1.friction_usd:.2f}: **{chosen:g}**"
+        + (" (also the best, or tied, at every friction checked)." if stable else
+           f" (not the best at every friction checked: {best})."),
+        f"The policy uses **{v1.min_p_fraud:g}**"
+        + (" (the chosen minimum)." if grid[(v1.min_p_fraud, v1.friction_usd)]["net_benefit"]
+           == grid[(chosen, v1.friction_usd)]["net_benefit"] else
+           ": it differs from the best on validation; update the policy."),
+    ]  # fmt: skip
 
     # Fairness: outcomes of the chosen policy by group (test).
     test = frozen["fraud_test"]
     sim = sims["fraud_test"][names[-1]]
     d = test.assign(
         touched=(sim.action != "no_contact").to_numpy(),
-        human=(sim.handled_by == "human").to_numpy(),
+        human=sim.human_case.to_numpy(),
     )
     lines += [
         "",
