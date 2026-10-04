@@ -21,7 +21,9 @@ if [[ ! -f data/gold/serving/serving.duckdb ]]; then
     exit 1
 fi
 
-# Capacity limits: at most 2 instances, 40 concurrent requests each; scales to zero when idle.
+# Capacity limits: one instance (conversation state lives in its memory, so every request of a
+# conversation must reach it; session affinity keeps a browser on it), 40 concurrent requests,
+# scales to zero when idle.
 gcloud run deploy "$SERVICE" \
     --source . \
     --project "$GCP_PROJECT_ID" \
@@ -30,7 +32,8 @@ gcloud run deploy "$SERVICE" \
     --cpu 1 \
     --memory 512Mi \
     --min-instances 0 \
-    --max-instances 2 \
+    --max-instances 1 \
+    --session-affinity \
     --concurrency 40 \
     --timeout 60 \
     --set-env-vars "GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash-lite}" \
