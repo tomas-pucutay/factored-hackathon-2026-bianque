@@ -69,7 +69,7 @@ model-search: ## Tuned ML vs the calibrated fraud_score (reports/model_search.md
 
 evaluate: ## Compare contact policies (reports/policy_comparison.md) and run agent evaluation
 	$(PY) -m $(PKG).evaluation.policy_compare
-	$(PY) eval/run_agent_eval.py
+	$(PY) -m $(PKG).evaluation.agent_eval
 
 # --- Serving -----------------------------------------------------------------
 
