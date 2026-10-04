@@ -67,8 +67,8 @@ train: ## Fit the fraud calibrator, compare with baselines on frozen sets, log t
 model-search: ## Tuned ML vs the calibrated fraud_score (reports/model_search.md)
 	uv run --group ml python -m $(PKG).evaluation.model_search
 
-evaluate: ## Compare policies and run agent evaluation
-	$(PY) eval/policies_compare.py
+evaluate: ## Compare contact policies (reports/policy_comparison.md) and run agent evaluation
+	$(PY) -m $(PKG).evaluation.policy_compare
 	$(PY) eval/run_agent_eval.py
 
 # --- Serving -----------------------------------------------------------------
