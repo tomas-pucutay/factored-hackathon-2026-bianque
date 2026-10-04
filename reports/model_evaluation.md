@@ -33,6 +33,7 @@ Penalty per block: log(N) = 14.91 nats.
 
 | Calibrator | Brier | Log loss | ECE | ROC-AUC | PR-AUC |
 |---|---:|---:|---:|---:|---:|
+| no_skill | 0.000939 | 0.00749 | 0.00007 | 0.5000 | 0.0009 |
 | raw_score | 0.024410 | 0.13733 | 0.11947 | 0.7100 | 0.5382 |
 | histogram_baseline | 0.000463 | 0.00384 | 0.00003 | 0.8178 | 0.5296 |
 | isotonic | 0.000435 | 0.00376 | 0.00002 | 0.8168 | 0.5375 |
@@ -40,6 +41,7 @@ Penalty per block: log(N) = 14.91 nats.
 
 | Calibrator | Contacts | Frauds contacted | Legit contacted | Recall | Loss avoided (USD) | Contact + friction (USD) | Net benefit (USD) | Abstained |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
+| no_skill | 180,784 | 167 / 699 | 180,617 | 0.239 | 867,793 | 380,460 | 487,333 | - |
 | raw_score | 576,520 | 554 / 699 | 575,966 | 0.793 | 975,730 | 1,213,244 | -237,514 | - |
 | histogram_baseline | 74,206 | 410 / 699 | 73,796 | 0.587 | 847,718 | 155,484 | 692,234 | - |
 | isotonic | 74,319 | 412 / 699 | 73,907 | 0.589 | 864,001 | 155,718 | 708,283 | - |
@@ -50,6 +52,7 @@ Penalty per block: log(N) = 14.91 nats.
 
 | Calibrator | Brier | Log loss | ECE | ROC-AUC | PR-AUC |
 |---|---:|---:|---:|---:|---:|
+| no_skill | 0.000879 | 0.00708 | 0.00013 | 0.5000 | 0.0009 |
 | raw_score | 0.024409 | 0.13740 | 0.11975 | 0.7232 | 0.5769 |
 | histogram_baseline | 0.000397 | 0.00334 | 0.00010 | 0.8383 | 0.5698 |
 | isotonic | 0.000373 | 0.00326 | 0.00008 | 0.8398 | 0.5764 |
@@ -57,11 +60,29 @@ Penalty per block: log(N) = 14.91 nats.
 
 | Calibrator | Contacts | Frauds contacted | Legit contacted | Recall | Loss avoided (USD) | Contact + friction (USD) | Net benefit (USD) | Abstained |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
+| no_skill | 166,423 | 139 / 603 | 166,284 | 0.231 | 685,693 | 350,267 | 335,426 | - |
 | raw_score | 531,369 | 477 / 603 | 530,892 | 0.791 | 775,102 | 1,118,294 | -343,192 | - |
 | histogram_baseline | 68,281 | 378 / 603 | 67,903 | 0.627 | 728,360 | 143,068 | 585,293 | - |
 | isotonic | 68,613 | 379 / 603 | 68,234 | 0.629 | 732,951 | 143,765 | 589,186 | - |
 | bayes_blocks | 69,082 | 379 / 603 | 68,703 | 0.629 | 735,912 | 144,753 | 591,159 | 15,107 (4 fraud) |
 | oracle (contact only frauds) | 603 | 603 / 603 | 0 | 1.000 | 952,888 | 64 | 952,824 | - |
+
+## Net benefit: `bayes_blocks` minus each alternative
+
+Same transactions, paired bootstrap with 1,000 resamples. A difference is real when its 95% interval excludes 0.
+`no_skill` gives every transaction the train fraud rate: its net benefit comes from
+the amount alone, so it is the bar any model's net benefit has to clear.
+
+| Split | Alternative | Difference (USD) | Bootstrap 95% | Verdict |
+|---|---|---:|---|---|
+| fraud_validation | no_skill | +227,012 | [+171,333, +282,208] | better |
+| fraud_validation | raw_score | +951,859 | [+879,037, +1,020,669] | better |
+| fraud_validation | histogram_baseline | +22,110 | [-1,877, +54,146] | not distinguishable |
+| fraud_validation | isotonic | +6,061 | [-1,873, +21,589] | not distinguishable |
+| fraud_test | no_skill | +255,733 | [+205,594, +303,607] | better |
+| fraud_test | raw_score | +934,351 | [+867,654, +1,002,013] | better |
+| fraud_test | histogram_baseline | +5,866 | [-1,927, +21,379] | not distinguishable |
+| fraud_test | isotonic | +1,973 | [-14,694, +21,821] | not distinguishable |
 
 ## By group (test, `bayes_blocks`)
 
