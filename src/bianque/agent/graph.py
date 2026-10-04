@@ -357,10 +357,13 @@ class Agent:
                 on_date = None
         found = self.tools.find_charges(session, x.amount_usd, on_date, x.merchant)
         self._audit(s, "charges_found", n=len(found))
+        # What the customer said about the charge ("no lo reconozco") holds while we find it.
+        stated = x.intent if x.intent in ("not_mine", "its_mine") else s.get("pending_intent")
         if len(found) == 1:
+            x = x.model_copy(update={"intent": stated or x.intent})
             return self._identified(s, session, found[0].transaction_id, x)
         if not found:
-            return {"route": "clarify", "stage": "identify"}
+            return {"route": "clarify", "stage": "identify", "pending_intent": stated}
         top = found[:MAX_CANDIDATES]
         options = "\n".join(
             f"{i}. USD {c.amount_usd:,.2f} - {c.merchant or '-'} - {c.transaction_date[:10]}"

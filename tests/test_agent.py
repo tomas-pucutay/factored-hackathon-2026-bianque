@@ -30,6 +30,12 @@ class Scripted:
         "1": dict(intent="unclear", confirmation="yes", language="es"),
         # Mistakes the real model made in the first heldout run (reports/agent_evaluation_run1.md):
         "sí, bloquéala": dict(intent="out_of_scope", confirmation="yes", language="es"),
+        "no reconozco un cobro de 98765": dict(
+            intent="not_mine", confirmation="none", language="es", amount_usd=98765.0
+        ),
+        "perdón, era de 120": dict(
+            intent="unclear", confirmation="none", language="es", amount_usd=120.0
+        ),
         "2": dict(intent="its_mine", confirmation="none", language="es"),
     }
 
@@ -281,3 +287,15 @@ def test_menu_digits_never_go_to_the_model(tmp_path):
     s = a.reply("c1", token, "2")
 
     assert actions(s) == ["open_dispute"] and s["llm_mode"] == "menu_option"
+
+
+def test_stated_intent_survives_a_charge_that_was_not_found(tmp_path):
+    # Run 1: after a wrong amount, the corrected amount found the charge but the agent asked
+    # again whether the customer recognized it, losing their first "no lo reconozco".
+    a, token = agent(tmp_path), issue("CLI-A")
+
+    s = a.start_reactive("c1", token, "no reconozco un cobro de 98765")
+    assert s["stage"] == "identify" and actions(s) == []
+    s = a.reply("c1", token, "perdón, era de 120")
+
+    assert s["transaction_id"] == "TX-A-FRAUD" and actions(s) == ["open_dispute"]
