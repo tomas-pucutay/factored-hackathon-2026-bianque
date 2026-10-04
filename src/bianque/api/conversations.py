@@ -5,8 +5,14 @@ Identity comes only from the `Authorization: Bearer <session token>` header of e
 customer's token gets 404, as if it did not exist. Test sessions are issued by
 POST /test/sessions, standing in for the bank's app login.
 
-Capacity: at most MAX_CONVERSATIONS conversations are kept in memory per instance (503 past
-it); Cloud Run runs at most 2 instances (scripts/deploy.sh).
+Inactivity: a conversation closes after IDLE_SECONDS without a request from its customer
+(CONVERSATION_IDLE_SECONDS, default 180). Requests to a closed conversation get 410 Gone; a
+keep-alive request resets the timer. Every turn returns the timeout so a client can warn the
+customer before it closes.
+
+Capacity: at most MAX_CONVERSATIONS conversations are kept in memory (503 past it). They live
+in the instance's memory, so Cloud Run runs a single instance with session affinity
+(scripts/deploy.sh).
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -32,9 +39,18 @@ from bianque.policy.engine import Charge, CustomerContext, decide, load_policy
 
 MAX_CONVERSATIONS = 5_000
 INBOX_SIZE = 30
+IDLE_SECONDS = int(os.getenv("CONVERSATION_IDLE_SECONDS", "180"))
+
+
+@dataclass
+class Owner:
+    customer_id: str
+    last_seen: float
+    closed: bool = False
+
 
 router = APIRouter()
-_owners: dict[str, str] = {}
+_owners: dict[str, Owner] = {}
 _lock = threading.Lock()
 
 
@@ -61,15 +77,26 @@ def _token(authorization: str | None) -> str | None:
 
 
 def _owner_check(conversation_id: str, token: str | None) -> None:
+    """404 for unknown or someone else's conversation, 410 once it closed for inactivity;
+    otherwise the request counts as activity."""
     owner = _owners.get(conversation_id)
     if owner is None:
         raise HTTPException(404, "conversation not found")
     try:
         customer = verify(token).customer_id
     except SessionError:
-        return  # no valid session: the agent itself will ask the customer to log in
-    if customer != owner:
+        customer = None  # no valid session: the agent itself will ask the customer to log in
+    if customer is not None and customer != owner.customer_id:
         raise HTTPException(404, "conversation not found")
+    now = time.monotonic()
+    if not owner.closed and now - owner.last_seen > IDLE_SECONDS:
+        owner.closed = True
+        get_agent().tools.store.audit(
+            conversation_id, "closed_idle", {"idle_seconds": IDLE_SECONDS}
+        )
+    if owner.closed:
+        raise HTTPException(410, f"conversation closed after {IDLE_SECONDS} s of inactivity")
+    owner.last_seen = now
 
 
 def _register(token: str | None) -> str:
@@ -81,7 +108,7 @@ def _register(token: str | None) -> str:
         except SessionError as e:
             raise HTTPException(401, str(e)) from e
         conversation_id = f"CONV-{uuid.uuid4().hex[:12].upper()}"
-        _owners[conversation_id] = customer
+        _owners[conversation_id] = Owner(customer, time.monotonic())
     return conversation_id
 
 
@@ -95,6 +122,7 @@ class TurnOut(BaseModel):
     decision: dict | None
     understood_by: str = Field(description="gemini, menu (fallback) or none")
     latency_ms: float
+    idle_timeout_seconds: int = Field(description="the conversation closes after this long idle")
 
 
 def _out(conversation_id: str, state: dict, started: float) -> TurnOut:
@@ -108,6 +136,7 @@ def _out(conversation_id: str, state: dict, started: float) -> TurnOut:
         decision=state.get("decision"),
         understood_by=state.get("llm_mode", "none"),
         latency_ms=round((time.monotonic() - started) * 1000, 1),
+        idle_timeout_seconds=IDLE_SECONDS,
     )
 
 
@@ -165,6 +194,13 @@ def send_message(
     _owner_check(conversation_id, token)
     state = get_agent().reply(conversation_id, token, body.message)
     return _out(conversation_id, state, started)
+
+
+@router.post("/conversations/{conversation_id}/keepalive", tags=["conversations"])
+def keepalive(conversation_id: str, authorization: str | None = Header(None)) -> dict:
+    """The customer is still there: reset the inactivity timer."""
+    _owner_check(conversation_id, _token(authorization))
+    return {"conversation_id": conversation_id, "idle_timeout_seconds": IDLE_SECONDS}
 
 
 @router.get("/conversations/{conversation_id}", tags=["conversations"])

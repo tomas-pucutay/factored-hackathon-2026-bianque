@@ -68,3 +68,28 @@ def test_another_customer_cannot_see_or_continue_a_conversation(client):
     assert client.get(f"/conversations/{cid}", headers=b).status_code == 404
     other = client.post(f"/conversations/{cid}/messages", json={"message": "no fui yo"}, headers=b)
     assert other.status_code == 404
+
+
+def test_idle_conversation_closes_and_keepalive_resets_the_timer(client, monkeypatch):
+    auth = login(client, "CLI-A")
+    start = client.post(
+        "/conversations/proactive", json={"transaction_id": "TX-A-FRAUD"}, headers=auth
+    ).json()
+    cid = start["conversation_id"]
+    assert start["idle_timeout_seconds"] == conversations.IDLE_SECONDS
+
+    clock = [1_000.0]
+    monkeypatch.setattr(conversations.time, "monotonic", lambda: clock[0])
+    conversations._owners[cid].last_seen = clock[0]
+    clock[0] += conversations.IDLE_SECONDS - 1
+    assert client.post(f"/conversations/{cid}/keepalive", headers=auth).status_code == 200
+    clock[0] += conversations.IDLE_SECONDS - 1  # still open: the keepalive reset the timer
+    assert client.get(f"/conversations/{cid}", headers=auth).status_code == 200
+
+    clock[0] += conversations.IDLE_SECONDS + 1
+    late = client.post(
+        f"/conversations/{cid}/messages", json={"message": "no fui yo"}, headers=auth
+    )
+
+    assert late.status_code == 410 and "inactivity" in late.json()["detail"]
+    assert client.post(f"/conversations/{cid}/keepalive", headers=auth).status_code == 410
