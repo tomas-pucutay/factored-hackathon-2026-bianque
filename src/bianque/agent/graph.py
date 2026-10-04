@@ -28,7 +28,7 @@ Safety properties, enforced here and in the tools:
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from typing import Any, TypedDict
 
@@ -130,7 +130,8 @@ class Agent:
     def _config(self, conversation_id: str) -> dict:
         return {"configurable": {"thread_id": conversation_id}}
 
-    def _run(self, conversation_id: str, turn: dict) -> State:
+    def _input(self, conversation_id: str, turn: dict) -> dict:
+        """The graph input of a turn: the turn itself, plus the initial state if it is new."""
         current = self.state(conversation_id)
         if turn["event"] != "message" and current:
             raise ValueError(f"conversation {conversation_id} already exists")
@@ -155,12 +156,41 @@ class Agent:
         transcript = list((current or {}).get("transcript", []))
         if message:
             transcript.append({"role": "customer", "text": message})
-        turn_input = {**base, **turn, "transcript": transcript, "reply": "", "handoff_reason": None}
-        self.graph.invoke(turn_input, self._config(conversation_id))
+        return {**base, **turn, "transcript": transcript, "reply": "", "handoff_reason": None}
+
+    def _close_turn(self, conversation_id: str) -> State:
         out = self.state(conversation_id)
         transcript = [*out["transcript"], {"role": "bianque", "text": out["reply"]}]
         self.graph.update_state(self._config(conversation_id), {"transcript": transcript})
         return self.state(conversation_id)
+
+    def _run(self, conversation_id: str, turn: dict) -> State:
+        self.graph.invoke(self._input(conversation_id, turn), self._config(conversation_id))
+        return self._close_turn(conversation_id)
+
+    def stream_reply(
+        self, conversation_id: str, token: str | None, message: str, reactive_start: bool = False
+    ) -> Iterator[tuple[str, Any]]:
+        """Like reply (or start_reactive), but yields ("step", node) as each node of the graph
+        finishes, then ("done", state). The steps are real progress, not a replay."""
+        turn = (
+            {
+                "event": "start_reactive",
+                "session_token": token,
+                "message": message,
+                "mode": "reactive",
+                "stage": "identify",
+            }
+            if reactive_start
+            else {"event": "message", "session_token": token, "message": message}
+        )
+        config = self._config(conversation_id)
+        for update in self.graph.stream(
+            self._input(conversation_id, turn), config, stream_mode="updates"
+        ):
+            for node in update:
+                yield "step", node
+        yield "done", self._close_turn(conversation_id)
 
     # --- helpers ---------------------------------------------------------------------------
 

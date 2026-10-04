@@ -231,3 +231,27 @@ def test_finished_conversation_does_not_act_again(tmp_path):
     s = a.reply("c1", token, "no fui yo")
 
     assert "ya está cerrado" in s["reply"] and actions(s) == ["close_as_legitimate"]
+
+
+def test_streaming_yields_each_node_then_the_final_state(tmp_path):
+    a, token = agent(tmp_path), issue("CLI-A")
+    a.start_proactive("c1", token, "TX-A-FRAUD")
+
+    events = list(a.stream_reply("c1", token, "no fui yo"))
+
+    steps = [value for kind, value in events if kind == "step"]
+    kind, final = events[-1]
+    assert steps == ["understand", "dispute"]
+    assert kind == "done" and final["stage"] == "await_block_confirmation"
+    assert final["transcript"][-1]["text"] == final["reply"]
+
+
+def test_streaming_a_reactive_start(tmp_path):
+    a, token = agent(tmp_path), issue("CLI-A")
+
+    events = list(
+        a.stream_reply("c1", token, "no reconozco 120 de gasolinera", reactive_start=True)
+    )
+
+    assert [v for k, v in events if k == "step"] == ["understand", "identify", "dispute"]
+    assert events[-1][1]["transaction_id"] == "TX-A-FRAUD"
