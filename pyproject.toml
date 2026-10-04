@@ -26,6 +26,7 @@ dev = [
 ]
 ml = [
     "mlflow>=3.16.1",
+    "optuna>=5.0.0",
 ]
 
 [build-system]
