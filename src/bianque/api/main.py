@@ -16,6 +16,8 @@ from pathlib import Path
 import duckdb
 from fastapi import FastAPI
 
+from bianque.api.conversations import router as conversations
+
 SERVING_DB = Path(os.getenv("SERVING_DB", "data/gold/serving/serving.duckdb"))
 
 app = FastAPI(
@@ -26,6 +28,7 @@ app = FastAPI(
     ),
     version="0.1.0",
 )
+app.include_router(conversations)
 
 
 def slice_info(path: Path) -> dict | None:
