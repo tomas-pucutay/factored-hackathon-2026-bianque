@@ -128,7 +128,7 @@ Delimited text columns become `VARCHAR[]` in silver (`split` in the contract).
 
 `process_date` is a business day, not the calendar date of the event. Events before a
 cutoff hour belong to the previous process day. The rule differs per table (`process_day` in
-each contract) and holds for 100% of rows:
+each contract) and holds for every row except at the exact cutoff second (see below):
 
 | Table | Rule | Evidence |
 |-------|------|----------|
@@ -142,6 +142,15 @@ each contract) and holds for 100% of rows:
 
 The cutoff is the same in every country (including Brazil, Spain and USA transactions), so
 it is not a time zone effect.
+
+**At exactly the cutoff second the source assigns either day.** Found by the data quality
+checks (2026-10-04, [`reports/data_quality.md`](../reports/data_quality.md)): of the rows
+timestamped exactly at the cutoff, about half are on each day (transactions at 06:00:00: 51 of
+108 on the previous day; campaign_sends: 28 of 52; call_center_interactions at 08:00:00: 7 of
+15; complaints: 1 of 1; digital_events: 194 rows). Every other row follows the rule. This is
+consistent with timestamps truncated to the second (an event at 05:59:59.6 shows as
+06:00:00). The first validation reported 100% because it treated the boundary loosely. The
+quality check accepts either day at that second and counts those rows apart.
 
 **digital_events:** events between 06:00 and 06:10 are split between the previous and the
 same day, with a gradual handover (06:00 → 80% previous day, 06:05 → 11%, 06:10 → 0%). This
