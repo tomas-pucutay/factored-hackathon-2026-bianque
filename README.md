@@ -45,6 +45,27 @@ flowchart LR
 | **Verify** | Every action is read back before the customer hears about it | — |
 | **Escalate** | A structured handoff package, routed by language and specialty | Policy and workflow rules |
 
+## The problem, in data
+
+Demand patterns, cost per resolution and data quality chose the workflow: **charges the customer does not recognize**.
+
+| Contact reason (686,296 contacts, 2023 to 2026) | Share |
+|---|---:|
+| Transaccional | 35% |
+| Producto | 22% |
+| Queja (complaint) | 17% |
+| Técnico | 15% |
+| Comercial | 8% |
+| Retención | 3% |
+
+- **Demand and its cost:** about 19,000 service contacts a month, about USD 29.5k a month, USD 1.55 per contact on average (synthetic cost per minute, `cost_assumptions_v1`).
+- **Complaints:** 67,095, of which **40% are charge disputes** (Transactions, Fees). When a complaint arrives, 20% breach their SLA, 1.1% reach the regulator, and the median takes 16 days to resolve.
+- **Fraud:** 0.10% of transactions every year. One charge in five has no fraud score, and the bank's score is the only signal in the data ([ADR 0001](docs/adr/0001-fraud-signal-gate.md)).
+- **Why this workflow:** it is the largest contact reason and 40% of complaints, it has valid labels to evaluate a learned component, and its actions can be verified (open a dispute, block a product, close as legitimate).
+- **Cost per resolution (offline):** USD 0.33 per safe automated resolution in the agent evaluation (alert channel, model and handoffs), against USD 1.55 per human contact today. Both rest on synthetic costs.
+
+Sources: [`reports/data_quality.md`](reports/data_quality.md) (insights), gold `service_cost_baseline` and `dispute_outcomes`, [`reports/agent_evaluation.md`](reports/agent_evaluation.md).
+
 ## Status
 
 | Part | Status | Evidence |
