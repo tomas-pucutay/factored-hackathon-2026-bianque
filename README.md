@@ -3,7 +3,7 @@ The best complaint is the one that never arrives. Proactive AI customer service 
 
 **Live API:** [https://bianque-api-280716480355.us-central1.run.app](https://bianque-api-280716480355.us-central1.run.app) ([`/health`](https://bianque-api-280716480355.us-central1.run.app/health), [`/docs`](https://bianque-api-280716480355.us-central1.run.app/docs)). It scales to zero, so the first request after a while takes a few extra seconds.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). The API is deployed on Google Cloud Run with a health endpoint. Quality report, policy and agent are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). So is the contact policy (versioned YAML, rule-based engine, comparison on the frozen sets). The API is deployed on Google Cloud Run with a health endpoint. Quality report and agent are not implemented yet.
 
 ## Requirements
 
@@ -161,6 +161,26 @@ The signal gate showed that `fraud_score` already ranks at the ceiling the data 
 
 Design decisions, evaluation rigor and the net benefit metric: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md), [`reports/model_search.md`](reports/model_search.md).
 
+### Policy: when to contact, through which channel, and when a human takes over
+
+```bash
+make evaluate   # compare contact policies on the frozen sets (reports/policy_comparison.md)
+```
+
+The model only outputs a probability; [`policies/contact_policy_v1.yaml`](policies/contact_policy_v1.yaml) (versioned, labeled SYNTHETIC) decides, through [`bianque.policy.engine`](src/bianque/policy/engine.py), the same code the API uses. Every decision lists the rules that produced it, with their numbers:
+
+- **Contact** only when `p_fraud ≥ 0.01` and `p_fraud × amount > channel cost + friction`; **human review** when the model's credible interval straddles that break-even; at most **one proactive contact per customer per 24 h**.
+- **Channel:** Push for app users, otherwise SMS, the cheapest per message read among real-time channels (gold.channel_costs).
+- **A human handles the case** for amounts ≥ USD 5,000 or customers with ≥ 2 complaints in a year.
+- **Actions** (dispute, provisional card block) need an authenticated session and the customer's answer; the block also needs explicit confirmation.
+
+| Validation (offline simulation) | Frauds caught | Legitimate customers contacted | Cases for a human | Net benefit (USD) |
+|---|---:|---:|---:|---:|
+| Expected-value rule only | 415 / 699 | 79,065 | 0 | 719,889 |
+| **contact_policy_v1** | 375 / 699 | **0** | 37 | 632,826 |
+
+The policy gives up simulated net benefit to send no false fraud alerts; that pays as soon as a false alert costs a legitimate customer more than USD 3.10 ([ADR 0003](docs/adr/0003-contact-policy-v1.md)).
+
 ## Deployment: Google Cloud Run
 
 The API runs on [Cloud Run](https://bianque-api-280716480355.us-central1.run.app/health): Cloud Build builds the [`Dockerfile`](Dockerfile) remotely and the service scales to zero when idle, within the free tier.
@@ -203,6 +223,7 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
 | [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines on the frozen sets, net benefit with bootstrap intervals, results by group (`make train`) |
 | [`reports/model_search.md`](reports/model_search.md) | Tuned ML (Bayesian optimization, random search) with and without `fraud_score` vs the calibrator (`make model-search`) |
+| [`reports/policy_comparison.md`](reports/policy_comparison.md) | Contact policies on the frozen sets: frauds caught, false alerts, human cases, net benefit, break-even friction, results by group (`make evaluate`) |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
 | [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
 | [`docs/adr/`](docs/adr/) | Architecture decision records: deviations from the build plan, with evidence |
@@ -231,4 +252,4 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 | Serve | `make serve` | run the FastAPI app locally |
 | Deploy | `make deploy` | build and deploy the API to Google Cloud Run (done) |
 
-The quality report, policy, agent and evaluation modules are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report, agent and agent evaluation are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
