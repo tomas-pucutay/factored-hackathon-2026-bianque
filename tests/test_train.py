@@ -62,3 +62,26 @@ def test_decision_metrics_weights_sampled_rows():
 
     assert (m["contacts"], m["legit_contacted"]) == (11, 10)
     assert m["net_benefit_usd"] == pytest.approx(100.0 - 11 * 0.10 - 10 * 2.00)
+
+
+def test_row_net_benefit_sums_to_the_rule_outcome():
+    from bianque.models.train import row_net_benefit
+
+    y = np.array([1, 1, 0, 0])
+    amount = np.array([100.0, 100.0, 100.0, 1.0])
+    p = np.array([0.9, 0.01, 0.5, 0.9])
+
+    rows = row_net_benefit(y, amount, p, COSTS)
+
+    assert rows.sum() == pytest.approx(decision_metrics(y, amount, p, COSTS)["net_benefit_usd"])
+    assert rows[1] == 0.0 and rows[3] == 0.0  # not contacted
+
+
+def test_constant_calibrator_ignores_the_score():
+    from bianque.models.calibration import ConstantCalibrator, ScoreCounts
+
+    counts = ScoreCounts(np.array([1.0, 50.0]), np.array([90, 5]), np.array([0, 5]), 5, 0)
+
+    p = ConstantCalibrator.fit(counts).predict(np.array([1.0, 50.0, np.nan]))
+
+    assert p.tolist() == pytest.approx([0.05, 0.05, 0.05])

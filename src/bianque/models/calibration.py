@@ -188,6 +188,25 @@ class HistogramCalibrator:
 
 
 @dataclass(frozen=True)
+class ConstantCalibrator:
+    """No-skill reference: the train fraud rate for every transaction, score ignored.
+
+    Any value it shows in the contact rule comes from the amount alone (large amounts clear
+    the hurdle even at the base rate), which is the bar a model's net benefit must beat.
+    """
+
+    rate: float
+    name: str = "no_skill"
+
+    @classmethod
+    def fit(cls, counts: ScoreCounts) -> ConstantCalibrator:
+        return cls((int(counts.k.sum()) + counts.unscored_k) / counts.total)
+
+    def predict(self, scores: np.ndarray) -> np.ndarray:
+        return np.full(len(np.asarray(scores)), self.rate)
+
+
+@dataclass(frozen=True)
 class RawScoreCalibrator:
     """Naive baseline: read the score as a percentage; no score means 0."""
 

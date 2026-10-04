@@ -38,6 +38,7 @@ from bianque.evaluation.frozen_sets import sha256
 from bianque.models.baselines import BIN_WIDTH
 from bianque.models.calibration import (
     BayesianBlocksCalibrator,
+    ConstantCalibrator,
     HistogramCalibrator,
     IsotonicCalibrator,
     RawScoreCalibrator,
@@ -54,6 +55,8 @@ EXPERIMENT = "fraud_calibration"
 REPORT = Path("reports/model_evaluation.md")
 SETS = ("fraud_validation", "fraud_test")
 GROUPS = ("segment", "customer_country", "age_band")
+N_BOOT = 1000
+SEED = 0
 
 
 @dataclass(frozen=True)
@@ -184,6 +187,43 @@ def decision_metrics(
     return out
 
 
+def row_net_benefit(y: np.ndarray, amount: np.ndarray, p: np.ndarray, costs: Costs) -> np.ndarray:
+    """Each transaction's contribution to the net benefit of the contact rule (sums to it)."""
+    contact = p * amount > costs.contact + costs.friction
+    fraud = y == 1
+    return contact * (
+        np.where(fraud, amount, 0.0) - costs.contact - np.where(fraud, 0.0, costs.friction)
+    )
+
+
+def net_benefit_differences(
+    models: dict, frozen: dict[str, pd.DataFrame], costs: Costs, selected: str
+) -> dict[str, list[tuple[str, float, float, float]]]:
+    """Net benefit of the selected model minus each other model, on the same transactions,
+    with a paired bootstrap 95% interval: is the difference real or noise?"""
+    rng = np.random.default_rng(SEED)
+    out = {}
+    for split, df in frozen.items():
+        y, amount, scores = (
+            df["is_fraud"].to_numpy(),
+            df["amount_usd"].to_numpy(),
+            df["score"].to_numpy(),
+        )
+        rows = {n: row_net_benefit(y, amount, m.predict(scores), costs) for n, m in models.items()}
+        # The same resamples for every comparison, drawn in chunks to bound memory.
+        boot = {name: [] for name in models if name != selected}
+        for start in range(0, N_BOOT, 50):
+            idx = rng.integers(0, len(df), (min(50, N_BOOT - start), len(df)), dtype=np.int32)
+            for name in boot:
+                boot[name].append((rows[selected] - rows[name])[idx].sum(axis=1))
+        out[split] = []
+        for name, chunks in boot.items():
+            lo, hi = np.quantile(np.concatenate(chunks), [0.025, 0.975])
+            delta = rows[selected] - rows[name]
+            out[split].append((name, float(delta.sum()), float(lo), float(hi)))
+    return out
+
+
 def oracle_metrics(y: np.ndarray, amount: np.ndarray, costs: Costs) -> dict[str, float]:
     """Contact exactly the frauds: the upper bound of the net benefit."""
     return decision_metrics(y, amount, y.astype(float), Costs(costs.contact, 0.0, ""))
@@ -287,6 +327,7 @@ def write_report(
     groups: pd.DataFrame,
     costs: Costs,
     frozen: dict[str, pd.DataFrame],
+    differences: dict[str, list[tuple[str, float, float, float]]],
 ) -> None:
     lines = [
         "# Fraud calibrator evaluation",
@@ -368,6 +409,24 @@ def write_report(
             )
     lines += [
         "",
+        f"## Net benefit: `{selected}` minus each alternative",
+        "",
+        "Same transactions, paired bootstrap with "
+        f"{N_BOOT:,} resamples. A difference is real when its 95% interval excludes 0.",
+        "`no_skill` gives every transaction the train fraud rate: its net benefit comes from",
+        "the amount alone, so it is the bar any model's net benefit has to clear.",
+        "",
+        "| Split | Alternative | Difference (USD) | Bootstrap 95% | Verdict |",
+        "|---|---|---:|---|---|",
+    ]
+    for split, rows in differences.items():
+        for name, diff, lo, hi in rows:
+            verdict = "better" if lo > 0 else "worse" if hi < 0 else "not distinguishable"
+            lines.append(
+                f"| {split} | {name} | {diff:+,.0f} | [{lo:+,.0f}, {hi:+,.0f}] | {verdict} |"
+            )
+    lines += [
+        "",
         f"## By group (test, `{selected}`)",
         "",
         "Fraud recall and the share of legitimate transactions contacted, per group. Small",
@@ -395,6 +454,7 @@ def main() -> None:
     costs = load_costs(con, settings)
     blocks = BayesianBlocksCalibrator.fit(counts)
     models = {
+        "no_skill": ConstantCalibrator.fit(counts),
         "raw_score": RawScoreCalibrator(),
         "histogram_baseline": histogram_baseline(con, settings),
         "isotonic": IsotonicCalibrator.fit(counts),
@@ -438,7 +498,8 @@ def main() -> None:
         log.warning("%s beat bayes_blocks on validation; model file not updated", selected)
     test = frozen["fraud_test"]
     groups = group_table(test, models[selected].predict(test["score"].to_numpy()), costs)
-    write_report(results, oracle, selected, blocks, groups, costs, frozen)
+    differences = net_benefit_differences(models, frozen, costs, selected)
+    write_report(results, oracle, selected, blocks, groups, costs, frozen, differences)
     log.info("wrote %s", REPORT)
 
 
