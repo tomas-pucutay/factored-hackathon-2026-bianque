@@ -28,9 +28,10 @@ from bianque.agent.session import SessionError, issue, verify
 from bianque.agent.store import CaseStore
 from bianque.agent.tools import Tools
 from bianque.config import load_settings
-from bianque.policy.engine import load_policy
+from bianque.policy.engine import Charge, CustomerContext, decide, load_policy
 
 MAX_CONVERSATIONS = 5_000
+INBOX_SIZE = 30
 
 router = APIRouter()
 _owners: dict[str, str] = {}
@@ -187,3 +188,59 @@ def get_conversation(conversation_id: str, authorization: str | None = Header(No
         "decision": state.get("decision"),
         "audit": agent.tools.store.audit_log(conversation_id),
     }
+
+
+@router.get("/demo/inbox", tags=["demo"])
+def demo_inbox() -> list[dict]:
+    """DEMO ONLY: recent charges of the serving slice with the contact policy's decision, for
+    the demo page. Customer IDs are the slice's synthetic identifiers; no personal data."""
+    agent = get_agent()
+    tools = agent.tools
+    rows = tools._q(
+        f"""SELECT t.customer_id, t.transaction_id, t.transaction_date, t.amount_usd,
+                   t.merchant_name, t.p_fraud, t.p_fraud_low, t.p_fraud_high, p.product_type,
+                   c.main_digital_channel, c.n_complaints_365d, c.country, s.reason
+            FROM transactions t
+            JOIN products p ON p.product_id = t.product_id
+            JOIN customers c ON c.customer_id = t.customer_id
+            JOIN slice_customers s ON s.customer_id = t.customer_id
+            WHERE s.reason = 'proactive_target' AND t.p_fraud >= 0.5
+               OR s.reason = 'recent_dispute' AND t.amount_usd >= 1000
+            ORDER BY t.p_fraud DESC, t.transaction_date DESC
+            LIMIT {INBOX_SIZE}"""
+    )
+    channels = tools.channels()
+    out = []
+    for r in rows:
+        d = decide(
+            tools.policy,
+            Charge(
+                r["transaction_id"],
+                float(r["amount_usd"]),
+                float(r["p_fraud"]),
+                r["p_fraud_low"],
+                r["p_fraud_high"],
+            ),
+            CustomerContext(r["main_digital_channel"], int(r["n_complaints_365d"] or 0)),
+            channels,
+        )
+        out.append(
+            {
+                "customer_id": r["customer_id"],
+                "transaction_id": r["transaction_id"],
+                "date": r["transaction_date"].isoformat(sep=" ", timespec="minutes"),
+                "amount_usd": float(r["amount_usd"]),
+                "merchant": r["merchant_name"],
+                "product_type": r["product_type"],
+                "country": r["country"],
+                "p_fraud": float(r["p_fraud"]),
+                "decision": {
+                    "action": d.action,
+                    "channel": d.channel,
+                    "handled_by": d.handled_by,
+                    "reasons": [{"rule": x.rule, "detail": x.detail} for x in d.reasons],
+                    "policy_version": d.policy_version,
+                },
+            }
+        )
+    return out
