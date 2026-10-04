@@ -8,6 +8,8 @@ gold_sql_dir: sql/gold
 eval_manifest: eval/frozen/manifest.json
 # Synthetic cost assumptions (policies/README.md); bump the version to change them.
 cost_assumptions: policies/cost_assumptions_v1.yaml
+# Contact policy (policies/README.md); bump the version to change it.
+contact_policy: policies/contact_policy_v1.yaml
 # Trained fraud calibrator (make train); committed, aggregated counts only.
 fraud_model: models/fraud_calibrator_bayes_blocks_v1.json
 
