@@ -70,3 +70,37 @@ def test_missing_rate_is_measured_only_where_the_field_applies(tmp_path):
     missing = got[("missing where the field applies", "merchant_name")]
 
     assert (missing.failing, missing.total, missing.passed) == (1, 2, True)  # info only
+
+
+def test_report_shows_verdict_failures_and_measurements(monkeypatch):
+    from conftest import lake_settings
+
+    from bianque.quality import report
+
+    monkeypatch.setattr(report, "insights", lambda settings: ["(insights)"])
+    base = dict(column=None, detail="", examples=[], rate=0.0)
+    checks = [
+        dict(base, table="t", dimension="validity", name="allowed values", severity="error",
+             failing=2, total=100, rate=0.02, passed=False, column="c", examples=["k1", "k2"]),
+        dict(base, table="t", dimension="uniqueness", name="one row per primary key (id)",
+             severity="error", failing=0, total=100, passed=True),
+        dict(base, table="t", dimension="completeness", name="missing (optional column)",
+             severity="info", failing=5, total=100, rate=0.05, passed=True, column="m"),
+    ]  # fmt: skip
+    results = {
+        "run_at": "2026-10-04T00:00:00+00:00",
+        "seconds": 1.0,
+        "tables": 1,
+        "update_policy": {
+            "last_bronze_ingestion": "x",
+            "late_arrival_days": 7,
+            "silver_watermarks": {"t": {"watermark": "2026-06-17"}},
+        },
+        "checks": checks,
+    }
+
+    md = report.render(results, lake_settings("data"))
+
+    assert "## Verdict: **FAIL**" in md
+    assert "| error | t | allowed values | c | 2 / 100 | 2.0% | k1, k2 |" in md
+    assert "| t | m | 5 | 5.0% | missing data |" in md
