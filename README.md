@@ -340,28 +340,64 @@ make deploy    # prints the service URL
 - **Capacity limits:** one instance with session affinity (conversations live in its memory), 40 concurrent requests, 1 vCPU and 512 MiB, 60 s timeout; a conversation closes after 3 minutes of inactivity.
 - **The image has only the API's dependencies.** The `dev` and `ml` groups (MLflow, Optuna) are not installed.
 
+## Route to operation and remaining work
+
+| Item | Now | Remaining for production |
+|---|---|---|
+| Tracing | Audit log of every step per conversation: redacted message, extraction, policy rules, each tool attempt, rejections, handoffs (`GET /conversations/{id}`); Cloud Run request logs | Distributed tracing (e.g. OpenTelemetry) across services |
+| Bounded retries | Tools: 2 attempts each; Gemini: 2 attempts, 15 s timeout | — |
+| Safe fallback | Gemini down: deterministic "1 / 2, yes / no" menu; a tool still failing: handoff with the failure as an open question | — |
+| Reproducible setup | `uv.lock`, `make` targets, frozen evaluation sets with committed hashes, committed model and policies, Dockerfile, `make deploy` | The source data needs the organizers' S3 credentials |
+| Capacity limits | One Cloud Run instance with session affinity, 40 concurrent requests, 5,000 conversations in memory (503 beyond), 3-minute idle close | A shared LangGraph checkpointer (e.g. Postgres) to scale out |
+| Monitoring | Cloud Run metrics and logs; `/health` reports the model, cost assumptions and slice; every turn returns its latency and who understood it (Gemini or menu) | Alerts on error rate, latency, fallback rate and drift of the score distribution |
+| Access controls | Signed, expiring session per request; ownership and policy requirements in the tools; secrets in Secret Manager; upload allow-list; test endpoints labeled | A real identity provider; remove `/test/sessions` and `/demo/inbox`; operator authentication |
+| Data retention | Silver tokenizes PII (HMAC) and drops birth dates; the slice has no labels; cases and audit live in the instance's temporary disk (demo) | A managed database with a retention policy; PII in free-text transcripts is not tokenized |
+| Data quality | Contracts declare allowed values, ranges, structural NULLs and process-day rules | **The quality report** (`make quality`, `reports/data_quality.md`) is not implemented |
+
 ## Documentation
 
-Design decisions are documented with their evidence and the alternatives that were rejected:
+Design decisions are documented with their evidence and the alternatives that were rejected.
+
+**Design**
 
 | Document | Read it for |
 |----------|-------------|
-| [`docs/bronze_design.md`](docs/bronze_design.md) | How bronze works and why: ingestion, idempotency, layout, failure handling |
-| [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
-| [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
-| [`docs/agent_design.md`](docs/agent_design.md) | How the agent works and why: workflow, identity and permissions, verification, failures, handoff, audit, operation |
-| [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
-| [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines on the frozen sets, net benefit with bootstrap intervals, results by group (`make train`) |
-| [`reports/model_search.md`](reports/model_search.md) | Tuned ML (Bayesian optimization, random search) with and without `fraud_score` vs the calibrator (`make model-search`) |
-| [`reports/agent_evaluation.md`](reports/agent_evaluation.md) | Agent evaluation with the brief's metrics: safe automated resolution, containment, escalation quality, unsafe outcomes with bounds, latency, cost, by language and segment (`make evaluate`) |
-| [`reports/policy_comparison.md`](reports/policy_comparison.md) | Contact policies on the frozen sets: frauds caught, false alerts, human cases, net benefit, break-even friction, results by group (`make evaluate`) |
+| [`docs/bronze_design.md`](docs/bronze_design.md) | Ingestion, idempotency, layout, failure handling |
+| [`docs/silver_design.md`](docs/silver_design.md) | Contracts, typing, quarantine, dedupe, keys, PII, late arrivals |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
-| [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
-| [`docs/adr/`](docs/adr/) | Architecture decision records: deviations from the build plan, with evidence |
+| [`docs/gold_design.md`](docs/gold_design.md) | Point-in-time features, scores, costs, slice, frozen sets |
+| [`docs/model_design.md`](docs/model_design.md) | The fraud calibrator: signal gate, Bayesian blocks, evaluation rigor, the net benefit metric |
+| [`docs/agent_design.md`](docs/agent_design.md) | The agent: workflow, identity and permissions, verification, failures, handoff, audit, operation |
+
+**Decisions (ADRs)**
+
+| ADR | Decision |
+|-----|----------|
+| [0001](docs/adr/0001-fraud-signal-gate.md) | The learned component is a calibrator of the bank's fraud score (signal gate) |
+| [0002](docs/adr/0002-model-search.md) | The calibrated score stays after a tuned model search failed to beat it |
+| [0003](docs/adr/0003-contact-policy-v1.md) | Contact policy v1: the expected-value rule decides, with guardrails |
+| [0004](docs/adr/0004-agent-replies-from-templates.md) | The language model understands; replies come from templates |
+
+**Reports** (offline measurements and simulations, generated by `make`)
+
+| Report | Content |
+|--------|---------|
+| [`reports/label_signal.md`](reports/label_signal.md) | What is learnable in the data, before training (`make label-signal`) |
+| [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines, net benefit with bootstrap intervals, by group (`make train`) |
+| [`reports/model_search.md`](reports/model_search.md) | Tuned ML with and without `fraud_score` vs the calibrator (`make model-search`) |
+| [`reports/policy_comparison.md`](reports/policy_comparison.md) | Contact policies: frauds caught, false alerts, human cases, net benefit, by group (`make evaluate`) |
+| [`reports/agent_evaluation.md`](reports/agent_evaluation.md) | Agent evaluation with the brief's metrics, run history (`make evaluate`) |
+| [`reports/agent_evaluation_run1.md`](reports/agent_evaluation_run1.md) | The first heldout run, before the fixes |
+| [`reports/agent_evaluation_heldout2.md`](reports/agent_evaluation_heldout2.md) | The second heldout set, run once after the fixes |
+
+**Reference**
+
+| Document | Read it for |
+|----------|-------------|
 | [`contracts/README.md`](contracts/README.md) | The schema contract format |
+| [`policies/README.md`](policies/README.md) | Synthetic, versioned assumptions: costs, the contact policy, model prices |
+| [`eval/README.md`](eval/README.md) | Frozen evaluation sets, leakage controls and the agent scenarios |
 | [`fixtures/README.md`](fixtures/README.md) | Team-generated synthetic test data and what it covers |
-| [`policies/README.md`](policies/README.md) | Synthetic, versioned assumptions (costs) |
-| [`eval/README.md`](eval/README.md) | Frozen evaluation sets and leakage controls |
 
 ## Development
 
@@ -377,10 +413,10 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 
 | Step | Command | What it does |
 |------|---------|--------------|
-| Data | `make pipeline` | bronze (done) → silver (done) → gold (done) → quality report |
-| Model | `make train` | fit the fraud calibrator, compare with baselines, log to MLflow (done) |
-| Eval | `make evaluate` | compare contact policies and run the agent evaluation (done) |
-| Serve | `make serve` | run the FastAPI app locally |
-| Deploy | `make deploy` | build and deploy the API to Google Cloud Run (done) |
+| Data | `make bronze`, `make silver`, `make gold` | S3 → bronze → silver → gold, serving slice, frozen sets (`make pipeline` also runs the quality step, not implemented yet) |
+| Model | `make label-signal`, `make train`, `make model-search` | Signal gate, calibrator vs baselines (MLflow), tuned model search |
+| Evaluate | `make evaluate` | Contact policy comparison, then the agent evaluation with Gemini |
+| Serve | `make serve` | The API and the demo page locally |
+| Deploy | `make deploy-secrets`, `make deploy` | Secrets to Secret Manager, then build and deploy to Cloud Run |
 
-The quality report is still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+Pipeline outputs (`data/`) and MLflow runs (`mlruns/`) are git-ignored; the reports, the model file, the policies and the evaluation scenarios are committed.
