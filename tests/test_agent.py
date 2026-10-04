@@ -28,6 +28,9 @@ class Scripted:
         ),
         "no reconozco un cobro": dict(intent="not_mine", confirmation="none", language="es"),
         "1": dict(intent="unclear", confirmation="yes", language="es"),
+        # Mistakes the real model made in the first heldout run (reports/agent_evaluation_run1.md):
+        "sí, bloquéala": dict(intent="out_of_scope", confirmation="yes", language="es"),
+        "2": dict(intent="its_mine", confirmation="none", language="es"),
     }
 
     def extract(self, message, context, today):
@@ -198,9 +201,11 @@ def test_model_down_falls_back_to_the_menu(tmp_path):
     a, token = agent(tmp_path, extractor=Down()), issue("CLI-A")
     a.start_proactive("c1", token, "TX-A-FRAUD")
 
-    s = a.reply("c1", token, "2")
+    a.reply("c1", token, "2")  # menu digit: decided without the model
+    s = a.reply("c1", token, "sí")  # free text: the model is down, the menu parser answers
 
-    assert s["llm_mode"] == "menu" and actions(s) == ["open_dispute"]
+    assert s["llm_mode"] == "menu"
+    assert actions(s) == ["open_dispute", "provisional_block"]
 
 
 def test_reactive_customer_describes_the_charge(tmp_path):
@@ -255,3 +260,24 @@ def test_streaming_a_reactive_start(tmp_path):
 
     assert [v for k, v in events if k == "step"] == ["understand", "identify", "dispute"]
     assert events[-1][1]["transaction_id"] == "TX-A-FRAUD"
+
+
+def test_block_answer_wins_over_an_out_of_scope_intent(tmp_path):
+    # Run 1: "sí, bloquéala" got intent out_of_scope with confirmation yes, and was declined.
+    a, token = agent(tmp_path), issue("CLI-A")
+    a.start_proactive("c1", token, "TX-A-FRAUD")
+    a.reply("c1", token, "no fui yo")
+
+    s = a.reply("c1", token, "sí, bloquéala")
+
+    assert actions(s) == ["open_dispute", "provisional_block"]
+
+
+def test_menu_digits_never_go_to_the_model(tmp_path):
+    # Run 1: the model read "2" (not mine) as its_mine; the menu is ours, so digits are exact.
+    a, token = agent(tmp_path), issue("CLI-A")
+    a.start_proactive("c1", token, "TX-A-FRAUD")
+
+    s = a.reply("c1", token, "2")
+
+    assert actions(s) == ["open_dispute"] and s["llm_mode"] == "menu_option"

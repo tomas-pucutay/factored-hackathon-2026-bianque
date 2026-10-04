@@ -47,6 +47,7 @@ from bianque.agent.tools import (
 )
 
 MAX_TOOL_ATTEMPTS = 2
+MENU_OPTIONS = {"1": "its_mine", "2": "not_mine"}  # the alert offers "1 if it was you, 2 if not"
 MAX_CANDIDATES = 3
 
 
@@ -220,7 +221,8 @@ class Agent:
 
     def _context(self, s: State) -> str:
         return {
-            "await_recognition": "asked whether the customer recognizes a specific charge",
+            "await_recognition": "asked whether the customer recognizes a specific charge; they "
+            "may answer 1 (it was me, its_mine) or 2 (I do not recognize it, not_mine)",
             "await_block_confirmation": "asked yes/no: provisionally block the product?",
             "await_charge_choice": "asked which of several listed charges, by number",
             "identify": "conversation start: the customer writes about a charge",
@@ -276,10 +278,24 @@ class Agent:
     def understand(self, s: State) -> dict:
         message = s.get("message") or ""
         mode = "gemini"
+        option = (
+            MENU_OPTIONS.get(message.strip()) if s.get("stage") == "await_recognition" else None
+        )
         try:
-            if self.extractor is None:
+            if option is not None:  # our own "1 / 2" menu: no model needed
+                extraction, mode = (
+                    Extraction(
+                        intent=option,
+                        confirmation="none",
+                        language=s.get("language", "es"),
+                        injection_suspected=False,
+                    ),
+                    "menu_option",
+                )
+            elif self.extractor is None:
                 raise LLMUnavailable("no model configured")
-            extraction = self.extractor.extract(message, self._context(s), self.today)
+            else:
+                extraction = self.extractor.extract(message, self._context(s), self.today)
         except LLMUnavailable as e:
             self._audit(s, "llm_fallback", reason=str(e)[:200])
             extraction, mode = self.menu.extract(message, self._context(s), self.today), "menu"
@@ -305,10 +321,14 @@ class Agent:
             return "clarify"
         if stage in ("identify", "await_charge_choice"):
             return "identify"
+        if stage == "await_block_confirmation" and x.confirmation in ("yes", "no"):
+            # The answer to the block question decides, whatever intent the model labeled
+            # ("sí, bloquéala" is not about recognizing the charge, so it may say out_of_scope).
+            return "block" if x.confirmation == "yes" else "finish_dispute"
         if x.intent == "out_of_scope":
             return "unsupported"
         if stage == "await_block_confirmation":
-            return {"yes": "block", "no": "finish_dispute"}.get(x.confirmation, "clarify")
+            return "clarify"
         if stage == "await_recognition":
             return {"not_mine": "dispute", "its_mine": "close_legit"}.get(x.intent, "clarify")
         return "clarify"
