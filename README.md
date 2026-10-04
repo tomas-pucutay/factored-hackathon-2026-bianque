@@ -87,16 +87,22 @@ flowchart LR
 git clone <repo-url> && cd factored-hackathon-2026-bianque
 make install   # uv sync --frozen (exact versions from uv.lock)
 make hooks     # install pre-commit hooks (gitleaks, ruff, hygiene checks)
-cp .env.example .env   # then fill in the AWS credentials and bucket name
+cp .env.example .env   # then fill in the values (table below)
 ```
 
-Generate the PII hash key once and add it to `.env` (silver refuses to run without it):
+Fill `.env` (never commit it):
+
+- **AWS credentials and bucket** for the source data (bronze).
+- **`PII_HASH_KEY`**, generated once; silver refuses to run without it. Keep it stable and private: changing it changes every PII token (a full rebuild is needed), and anyone with the key can test guesses against the tokens.
+- **`GEMINI_API_KEY`** (and optionally `GEMINI_MODEL`) for the agent. Without a key the agent still runs with its deterministic "1 / 2, yes / no" menu.
+- **`SESSION_SECRET`**, which signs the trusted test sessions; the API needs it.
+- **`GCP_PROJECT_ID`** only to deploy.
+
+Generate both secrets with:
 
 ```bash
-echo "PII_HASH_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> .env
+python -c 'import secrets; print(secrets.token_hex(32))'
 ```
-
-Keep this key stable and private: changing it changes every PII token in silver (a full rebuild is needed), and anyone with the key can test guesses against the tokens.
 
 Run `make` or `make help` to list all commands.
 
@@ -115,7 +121,10 @@ Run `make` or `make help` to list all commands.
 | `GCP_SERVICE` | Cloud Run service name (default `bianque-api`) |
 | `GEMINI_API_KEY` | Gemini API key for the agent (secret; in Secret Manager when deployed) |
 | `GEMINI_MODEL` | Gemini model (default `gemini-3.5-flash-lite`) |
-| `SESSION_SECRET` | Signs the trusted test sessions (secret; generate with `python -c "import secrets; print(secrets.token_hex(32))"`) |
+| `SESSION_SECRET` | Signs the trusted test sessions (secret; in Secret Manager when deployed) |
+| `CONVERSATION_IDLE_SECONDS` | Optional: a conversation closes after this long without activity (default 180) |
+| `SERVING_DB` | Optional: path of the serving slice the API reads (default `data/gold/serving/serving.duckdb`) |
+| `CASES_DB` | Optional: SQLite file for the agent's cases and audit log (default `/tmp/bianque_cases.sqlite`) |
 
 If the key variables are empty, boto3 falls back to its default credential chain (`~/.aws`, SSO, instance role).
 
@@ -193,7 +202,7 @@ Bianque contacts a customer only when `p_fraud × amount_usd > channel cost + fr
 | Output | Used for |
 |--------|----------|
 | `transaction_features` | Point-in-time fraud features: only information strictly before each transaction |
-| `transaction_scores` | What the proactive scan reads: calibrated `p_fraud`, model version, timestamp (baseline: the bank's `fraud_score`, calibrated on train) |
+| `transaction_scores` | What the proactive scan reads: calibrated `p_fraud` with its 95% credible interval, model version (`bayes_blocks_v1`, see [Model](#model-a-calibrated-fraud-probability)), timestamp |
 | `channel_costs` | Cost, delivery and response per channel |
 | `customer_360` | Agent context, fairness breakdowns, the app (snapshot, no labels) |
 | `agent_routing` | Handoff by language and specialty, with measured performance |
@@ -207,7 +216,7 @@ Key finding: the only fraud signal in this dataset is the bank's own `fraud_scor
 
 Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.md).
 
-### Model: a calibrated fraud probability
+## Model: a calibrated fraud probability
 
 ```bash
 make label-signal   # signal gate: what the data can teach (reports/label_signal.md)
@@ -233,10 +242,10 @@ The signal gate showed that `fraud_score` already ranks at the ceiling the data 
 
 Design decisions, evaluation rigor and the net benefit metric: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md), [`reports/model_search.md`](reports/model_search.md).
 
-### Policy: when to contact, through which channel, and when a human takes over
+## Policy: when to contact, through which channel, and when a human takes over
 
 ```bash
-make evaluate   # compare contact policies on the frozen sets (reports/policy_comparison.md)
+uv run python -m bianque.evaluation.policy_compare   # reports/policy_comparison.md (first step of make evaluate)
 ```
 
 The model only outputs a probability; [`policies/contact_policy_v1.yaml`](policies/contact_policy_v1.yaml) (versioned, labeled SYNTHETIC) decides, through [`bianque.policy.engine`](src/bianque/policy/engine.py), the same code the API uses. Every decision lists the rules that produced it, with their numbers:
@@ -255,7 +264,7 @@ The model only outputs a probability; [`policies/contact_policy_v1.yaml`](polici
 
 The guardrails (abstention, escalation, cap) cost USD 427 on test against the bare expected-value rule and keep 99.9% of cases automated. Trade-offs and alternatives: [ADR 0003](docs/adr/0003-contact-policy-v1.md).
 
-### Agent: the conversation, the actions and the handoff
+## Agent: the conversation, the actions and the handoff
 
 ```bash
 make serve   # http://127.0.0.1:8000: demo page; /docs: API
@@ -263,7 +272,7 @@ make serve   # http://127.0.0.1:8000: demo page; /docs: API
 
 A [LangGraph](https://langchain-ai.github.io/langgraph/) state machine runs the unrecognized-charge workflow: **understand → decide → act → verify → escalate**. Every node is deterministic code:
 
-- **Gemini only understands.** The customer's message becomes validated JSON (intent, yes/no, language, amount, date, merchant, injection flag). The text is redacted first and passed as data. If Gemini is down, a "1 / 2, yes / no" menu takes over.
+- **Gemini only understands.** The customer's message becomes validated JSON (intent, yes/no, language, amount, date, merchant, injection flag). The text is redacted first and passed as data. The alert's own "1 / 2" menu is read without the model, and if Gemini is down a "1 / 2, yes / no" menu takes over.
 - **Identity comes only from a trusted test session** (signed, expiring token per request). A customer number typed in the chat proves nothing.
 - **Tools enforce permissions:** a customer only reaches their own charges, cases and blocks. Disputes need an authenticated session and "not mine"; the provisional block also needs an explicit yes.
 - **Only verified actions are reported:** every action is read back before the reply, and replies are Spanish or Portuguese templates filled with those values ([ADR 0004](docs/adr/0004-agent-replies-from-templates.md)).
@@ -273,7 +282,7 @@ A [LangGraph](https://langchain-ai.github.io/langgraph/) state machine runs the 
 
 Design and operation: [`docs/agent_design.md`](docs/agent_design.md).
 
-### Agent evaluation
+## Agent evaluation
 
 ```bash
 make evaluate   # contact policies, then the agent scenarios against the real agent and Gemini
