@@ -1,9 +1,9 @@
 # factored-hackathon-2026-bianque
 The best complaint is the one that never arrives. Proactive AI customer service for LATAM banking. It scores card charges for fraud, contacts customers only when expected loss outweighs channel cost, and resolves disputes in Spanish and Portuguese with verified actions and safe human handoff.
 
-**Live API:** [https://bianque-api-280716480355.us-central1.run.app](https://bianque-api-280716480355.us-central1.run.app) ([`/health`](https://bianque-api-280716480355.us-central1.run.app/health), [`/docs`](https://bianque-api-280716480355.us-central1.run.app/docs)). It scales to zero, so the first request after a while takes a few extra seconds.
+**Live demo:** [https://bianque-api-280716480355.us-central1.run.app](https://bianque-api-280716480355.us-central1.run.app): pick a flagged charge, answer as the customer in Spanish or Portuguese, and see the policy decision, the verified actions, the handoff and the audit log. API: [`/docs`](https://bianque-api-280716480355.us-central1.run.app/docs), [`/health`](https://bianque-api-280716480355.us-central1.run.app/health). It scales to zero, so the first request after a while takes a few extra seconds.
 
-> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). So is the contact policy (versioned YAML, rule-based engine, comparison on the frozen sets). The API is deployed on Google Cloud Run with a health endpoint. Quality report and agent are not implemented yet.
+> **Status:** the data pipeline's bronze (S3 → Parquet), silver (contracts, quarantine, dedupe, keys, PII, late arrivals) and gold (features, scores, costs, outcomes, routing, serving slice, frozen evaluation sets) layers are implemented and tested, and so is the fraud calibrator (signal gate, Bayesian blocks vs baselines, tuned model search, MLflow). So is the contact policy (versioned YAML, rule-based engine, comparison on the frozen sets). So is the agent (LangGraph state machine, Gemini for understanding, permissioned tools, handoff, audit log), deployed on Google Cloud Run with a demo page. The quality report and the agent evaluation are not implemented yet.
 
 ## Requirements
 
@@ -44,6 +44,9 @@ Run `make` or `make help` to list all commands.
 | `GCP_PROJECT_ID` | Google Cloud project to deploy to (`make deploy`) |
 | `GCP_REGION` | Cloud Run region (default `us-central1`) |
 | `GCP_SERVICE` | Cloud Run service name (default `bianque-api`) |
+| `GEMINI_API_KEY` | Gemini API key for the agent (secret; in Secret Manager when deployed) |
+| `GEMINI_MODEL` | Gemini model (default `gemini-3.5-flash-lite`) |
+| `SESSION_SECRET` | Signs the trusted test sessions (secret; generate with `python -c "import secrets; print(secrets.token_hex(32))"`) |
 
 If the key variables are empty, boto3 falls back to its default credential chain (`~/.aws`, SSO, instance role).
 
@@ -183,6 +186,23 @@ The model only outputs a probability; [`policies/contact_policy_v1.yaml`](polici
 
 The guardrails (abstention, escalation, cap) cost USD 427 on test against the bare expected-value rule and keep 99.9% of cases automated. Trade-offs and alternatives: [ADR 0003](docs/adr/0003-contact-policy-v1.md).
 
+### Agent: the conversation, the actions and the handoff
+
+```bash
+make serve   # http://127.0.0.1:8000: demo page; /docs: API
+```
+
+A [LangGraph](https://langchain-ai.github.io/langgraph/) state machine runs the unrecognized-charge workflow: **understand → decide → act → verify → escalate**. Every node is deterministic code:
+
+- **Gemini only understands.** The customer's message becomes validated JSON (intent, yes/no, language, amount, date, merchant, injection flag). The text is redacted first and passed as data. If Gemini is down, a "1 / 2, yes / no" menu takes over.
+- **Identity comes only from a trusted test session** (signed, expiring token per request). A customer number typed in the chat proves nothing.
+- **Tools enforce permissions:** a customer only reaches their own charges, cases and blocks. Disputes need an authenticated session and "not mine"; the provisional block also needs an explicit yes.
+- **Only verified actions are reported:** every action is read back before the reply, and replies are Spanish or Portuguese templates filled with those values ([ADR 0004](docs/adr/0004-agent-replies-from-templates.md)).
+- **Three paths:** automated resolution; clarify or decline ambiguous and unsupported requests; a structured **handoff package** (request, verified facts, actions, evidence, open questions) routed by language and specialty for high amounts, repeat complainers, unclear intent and tool failures.
+- **Audit log** of every step: redacted message, extraction, policy rules, tool attempts, rejections, handoffs.
+
+Design and operation: [`docs/agent_design.md`](docs/agent_design.md).
+
 ## Deployment: Google Cloud Run
 
 The API runs on [Cloud Run](https://bianque-api-280716480355.us-central1.run.app/health): Cloud Build builds the [`Dockerfile`](Dockerfile) remotely and the service scales to zero when idle, within the free tier.
@@ -199,7 +219,11 @@ The API runs on [Cloud Run](https://bianque-api-280716480355.us-central1.run.app
    ```bash
    gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
    ```
-4. Set `GCP_PROJECT_ID` (and optionally `GCP_REGION`, `GCP_SERVICE`) in `.env`, as in `.env.example`.
+4. Set `GCP_PROJECT_ID` (and optionally `GCP_REGION`, `GCP_SERVICE`), `GEMINI_API_KEY`, `GEMINI_MODEL` and `SESSION_SECRET` in `.env`, as in `.env.example`.
+5. Store the secrets in Secret Manager (read from `.env`, never printed); rerun after changing them:
+   ```bash
+   make deploy-secrets
+   ```
 
 **Deploy** (after `make gold`, which builds the serving slice):
 
@@ -209,7 +233,7 @@ make deploy    # prints the service URL
 
 - **The data stays out of git.** The serving slice (`data/gold/serving/serving.duckdb`: 300 customers, tokenized PII, no labels) is uploaded from your machine at deploy time and lives only in the private image.
 - **Only what the image needs leaves the machine.** [`.gcloudignore`](.gcloudignore) is an allow-list: code, configs, policies, the model file and the slice. `.env` and the rest of the lake are never uploaded. Check with `gcloud meta list-files-for-upload`.
-- **Secrets stay local.** [`scripts/deploy.sh`](scripts/deploy.sh) reads only the `GCP_*` lines of `.env`.
+- **Secrets stay out of the code and the image.** [`scripts/deploy.sh`](scripts/deploy.sh) reads only the `GCP_*` and `GEMINI_MODEL` lines of `.env`; `GEMINI_API_KEY` and `SESSION_SECRET` reach the service from Secret Manager.
 - **Capacity limits:** at most 2 instances × 40 concurrent requests, 1 vCPU and 512 MiB each, 60 s timeout.
 - **The image has only the API's dependencies.** The `dev` and `ml` groups (MLflow, Optuna) are not installed.
 
@@ -222,6 +246,7 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/bronze_design.md`](docs/bronze_design.md) | How bronze works and why: ingestion, idempotency, layout, failure handling |
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
 | [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
+| [`docs/agent_design.md`](docs/agent_design.md) | How the agent works and why: workflow, identity and permissions, verification, failures, handoff, audit, operation |
 | [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
 | [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines on the frozen sets, net benefit with bootstrap intervals, results by group (`make train`) |
 | [`reports/model_search.md`](reports/model_search.md) | Tuned ML (Bayesian optimization, random search) with and without `fraud_score` vs the calibrator (`make model-search`) |
@@ -254,4 +279,4 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 | Serve | `make serve` | run the FastAPI app locally |
 | Deploy | `make deploy` | build and deploy the API to Google Cloud Run (done) |
 
-The quality report, agent and agent evaluation are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
+The quality report and the agent evaluation are still to be written (`make pipeline` stops at the quality step until then). Pipeline outputs (`data/`) and MLflow artifacts (`mlruns/`) are git-ignored.
