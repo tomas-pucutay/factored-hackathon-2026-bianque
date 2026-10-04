@@ -3,7 +3,7 @@
 		install hooks \
 		format lint test check \
 		bronze-plan bronze silver gold quality pipeline \
-		label-signal train evaluate \
+		label-signal train model-search evaluate \
 		serve docker-build \
 		clean
 
@@ -63,6 +63,9 @@ label-signal: ## Check for learnable fraud signal before training (reports/label
 
 train: ## Fit the fraud calibrator, compare with baselines on frozen sets, log to MLflow
 	uv run --group ml python -m $(PKG).models.train
+
+model-search: ## Tuned ML vs the calibrated fraud_score (reports/model_search.md)
+	uv run --group ml python -m $(PKG).evaluation.model_search
 
 evaluate: ## Compare policies and run agent evaluation
 	$(PY) eval/policies_compare.py
