@@ -315,9 +315,10 @@ Silver is 902 MB (bronze 1.1 GB). `transactions.amount_usd` is filled for every 
 
 ## 7. Limitations and what is left
 
-- **Quality checks are not enforced in silver.** `allowed`, `range`, `null_when` and
-  `process_day` describe expectations; checking and reporting them is the quality step
-  (`quality/checks.py`, `reports/data_quality.md`).
+- **Quality checks run after silver, not inside it.** `allowed`, `range`, `null_when` and
+  `process_day` do not reject rows in silver; the quality step (`make quality`,
+  `quality/checks.py`) checks every one of them on the built tables and writes
+  [`reports/data_quality.md`](../reports/data_quality.md).
 - **Parent changes in incremental runs.** If a dimension loses a key, fact months outside the
   rebuilt window are not re-checked against it until the next full rebuild.
 - **Free-text PII** in transcripts is not tokenized.
