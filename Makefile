@@ -4,7 +4,7 @@
 		format lint test check \
 		bronze-plan bronze silver gold quality pipeline \
 		label-signal train model-search evaluate \
-		serve docker-build deploy \
+		serve docker-build deploy deploy-secrets \
 		clean
 
 PY  := uv run python
@@ -81,6 +81,9 @@ docker-build: ## Build Docker image
 
 deploy: ## Deploy the API to Google Cloud Run (GCP_* in .env; needs make gold)
 	./scripts/deploy.sh
+
+deploy-secrets: ## Store GEMINI_API_KEY and SESSION_SECRET from .env in Secret Manager
+	./scripts/setup_secrets.sh
 
 # --- Housekeeping ------------------------------------------------------------
 
