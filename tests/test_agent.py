@@ -299,3 +299,19 @@ def test_stated_intent_survives_a_charge_that_was_not_found(tmp_path):
     s = a.reply("c1", token, "perdón, era de 120")
 
     assert s["transaction_id"] == "TX-A-FRAUD" and actions(s) == ["open_dispute"]
+
+
+def test_another_customers_session_gets_not_found_at_every_step(tmp_path):
+    # Run 1: an intruder's "sí, bloquéala" reached a node that treated PermissionDenied as a
+    # tool failure and handed the conversation to a human.
+    a = agent(tmp_path)
+    a.start_proactive("c1", issue("CLI-A"), "TX-A-FRAUD")
+    intruder = issue("CLI-B")
+
+    replies = [a.reply("c1", intruder, m)["reply"] for m in ("no fui yo", "sí fui yo", "mmm")]
+    s = a.state("c1")
+
+    assert all("No encontré" in r for r in replies)
+    assert actions(s) == [] and s.get("handoff") is None
+    denied = [e for e in a.tools.store.audit_log("c1") if e["step"] == "permission_denied"]
+    assert len(denied) == 3

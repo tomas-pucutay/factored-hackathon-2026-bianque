@@ -228,6 +228,11 @@ class Agent:
             "identify": "conversation start: the customer writes about a charge",
         }.get(s.get("stage", ""), "conversation in progress")
 
+    def _not_found(self, s: State) -> dict:
+        """Another customer's charge does not exist for this session: say so, act on nothing."""
+        self._audit(s, "permission_denied", transaction_id=s.get("transaction_id"))
+        return {**self._say(s, "not_found"), "route": "end"}
+
     def _login_required(self, s: State, error: SessionError) -> dict:
         self._audit(s, "session_rejected", reason=str(error))
         return {**self._say(s, "login_required"), "route": "end"}
@@ -473,7 +478,9 @@ class Agent:
             )
         except SessionError as e:
             return self._login_required(s, e)
-        except (ToolFailure, RequirementsNotMet, PermissionDenied) as e:
+        except PermissionDenied:
+            return self._not_found(s)
+        except (ToolFailure, RequirementsNotMet) as e:
             return {"route": "handoff", "handoff_reason": f"tool_failure: {e}"}
         actions = [
             *s["actions"],
@@ -500,7 +507,9 @@ class Agent:
             self._call(s, "verify_case", self.tools.verify_case, session, s["case_id"])
         except SessionError as e:
             return self._login_required(s, e)
-        except (ToolFailure, PermissionDenied) as e:
+        except PermissionDenied:
+            return self._not_found(s)
+        except ToolFailure as e:
             return {"route": "handoff", "handoff_reason": f"tool_failure: {e}"}
         return {
             **self._say(
@@ -528,7 +537,9 @@ class Agent:
                 raise ToolFailure("label not stored")
         except SessionError as e:
             return self._login_required(s, e)
-        except (ToolFailure, RequirementsNotMet, PermissionDenied) as e:
+        except PermissionDenied:
+            return self._not_found(s)
+        except (ToolFailure, RequirementsNotMet) as e:
             return {"route": "handoff", "handoff_reason": f"tool_failure: {e}"}
         actions = [
             *s["actions"],
@@ -557,6 +568,8 @@ class Agent:
             charge = self._charge(s, self._session(s))
         except SessionError as e:
             return self._login_required(s, e)
+        except PermissionDenied:
+            return self._not_found(s)
         key = "clarify_block" if stage == "await_block_confirmation" else "clarify_recognition"
         return {
             **self._say(s, key, **charge_facts(charge, s["language"])),
