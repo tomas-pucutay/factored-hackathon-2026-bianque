@@ -1,0 +1,56 @@
+# SYNTHETIC POLICY - WRITTEN BY THE TEAM, NOT LEARNED OR MEASURED.
+#
+# The fraud model only outputs a calibrated probability; this policy decides what to do with
+# it: whether to contact the customer proactively, through which channel, and when a human
+# must take the case. Every decision records the rules that produced it (bianque.policy).
+#
+# Thresholds were set from the training-period data and compared on the frozen validation
+# set (make evaluate, reports/policy_comparison.md); test is reported, never used to choose.
+#
+# Versioning: never edit a version that produced published results. Add contact_policy_v2.yaml
+# and point configs/settings.yaml to it.
+
+version: contact_policy_v1
+cost_assumptions: cost_assumptions_v1  # friction cost of contacting a legitimate customer
+
+contact:
+  # Expected-value rule: contact only if p_fraud x amount_usd > channel cost + friction.
+  # Minimum probability on top of it: below this, a contact is a bet that annoying a
+  # legitimate customer costs less than the synthetic friction (docs/model_design.md §6).
+  min_p_fraud: 0.01
+  # Abstain (human review) when the credible interval of p_fraud straddles the break-even.
+  abstain_when_interval_straddles: true
+  # At most one proactive contact per customer in this window; later flagged charges join
+  # the open case instead of triggering another message.
+  max_contacts_per_customer_hours: 24
+
+channels:
+  # Fraud alerts need an answer within minutes, so only real-time channels are used.
+  # Email is too slow; WhatsApp and Voice have no measured response (gold.channel_costs:
+  # opens_tracked = false) and an unknown response cannot be ranked.
+  allowed: [Push, SMS]
+  # Among allowed and eligible channels, the cheapest per message read:
+  # cost_per_delivered / open_rate, both from gold.channel_costs.
+  rank_by: cost_per_read
+  eligibility:
+    Push: app_user  # main digital channel is the Android or iOS app
+    SMS: always
+
+escalation:
+  # The case goes to a human agent (routed by language and specialty) instead of the
+  # automated conversation when any of these holds.
+  high_amount_usd: 5000           # about the top 10% of flagged charges
+  repeat_complainer_365d: 2       # complaints in the last 365 days (about 1% of customers)
+  on_abstain: true                # the model cannot tell (see contact)
+  on_tool_failure: true           # a tool failed after its bounded retries
+  on_unclear_intent_turns: 2      # the customer's intent is still unclear after 2 turns
+
+actions:
+  # What the automated conversation may do, and what each action requires. Enforced by the
+  # tools, not by the language model.
+  open_dispute:
+    requires: [authenticated_session, intent_not_mine]
+  provisional_card_block:
+    requires: [authenticated_session, intent_not_mine, explicit_confirmation]
+  close_as_legitimate:
+    requires: [authenticated_session, intent_its_mine]
