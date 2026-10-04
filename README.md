@@ -134,22 +134,26 @@ Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.m
 ```bash
 make label-signal   # signal gate: what the data can teach (reports/label_signal.md)
 make train          # fit and compare calibrators on the frozen sets, log to MLflow
+make model-search   # tuned LightGBM / logistic regression vs the calibrator (reports/model_search.md)
 make gold           # rescore transaction_scores and the serving slice with the model
 ```
 
 The signal gate showed that `fraud_score` already ranks at the ceiling the data allows (no legitimate transaction scores above 30.00; below it, fraud looks exactly like legitimate activity), and that behavioral features rank at chance. The learned component is therefore the map from score to probability ([ADR 0001](docs/adr/0001-fraud-signal-gate.md)):
 
 - **Bayesian blocks:** the data places the bin edges (it finds 30.00 / 30.01 on its own), and each block has a Beta posterior, so every `p_fraud` comes with a 95% credible interval for abstention.
-- **Compared on the frozen sets** with the raw score, the current histogram baseline and isotonic regression. It has the best log loss and the best simulated net benefit on validation (selection) and on test (report).
+- **Compared on the frozen sets** with a no-skill model, the raw score, the current histogram baseline and isotonic regression, by **net benefit in USD** of the contact decisions with a paired bootstrap. Calibration is worth +$256k on test over knowing nothing (95% interval [+206k, +304k]); the three calibrators are statistically tied, and Bayesian blocks is kept for its interval.
+- **A tuned search could not beat it** ([ADR 0002](docs/adr/0002-model-search.md)): LightGBM tuned with Bayesian optimization, without `fraud_score`, is no better than knowing nothing and $274k below the calibrated score on test; a hybrid that applies ML only where the score is weak is no better either.
 - **The model is a committed JSON file** of aggregated counts ([`models/`](models/)); gold scores every transaction with it.
 
-| Calibrator (test, offline) | Log loss | Simulated net benefit (USD) |
+| Model (test, offline) | Log loss | Simulated net benefit (USD) |
 |---|---:|---:|
+| No skill (train fraud rate for everyone) | 0.00708 | 335,426 |
+| Tuned LightGBM without `fraud_score` | 0.00712 | 316,952 |
 | Raw score as a probability | 0.13740 | −343,192 |
 | Histogram baseline | 0.00334 | 585,293 |
 | Bayesian blocks | 0.00325 | 591,159 |
 
-Design decisions and their rationale: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md).
+Design decisions, evaluation rigor and the net benefit metric: [`docs/model_design.md`](docs/model_design.md). Full results: [`reports/model_evaluation.md`](reports/model_evaluation.md), [`reports/model_search.md`](reports/model_search.md).
 
 ## Documentation
 
@@ -161,7 +165,8 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`docs/silver_design.md`](docs/silver_design.md) | How silver works and why: every design decision, results, tests, limitations |
 | [`docs/gold_design.md`](docs/gold_design.md) | How gold works and why: point-in-time features, baseline scores, costs, slice, frozen sets |
 | [`docs/model_design.md`](docs/model_design.md) | How the fraud calibrator works and why: signal gate, Bayesian blocks, selection, what the policy must know |
-| [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs baselines on the frozen sets, simulated contact outcomes, results by group (`make train`) |
+| [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines on the frozen sets, net benefit with bootstrap intervals, results by group (`make train`) |
+| [`reports/model_search.md`](reports/model_search.md) | Tuned ML (Bayesian optimization, random search) with and without `fraud_score` vs the calibrator (`make model-search`) |
 | [`docs/silver_data_findings.md`](docs/silver_data_findings.md) | What the source data really looks like vs the data dictionary (keys, NULLs, process dates, cross-table links, the fraud signal) |
 | [`reports/label_signal.md`](reports/label_signal.md) | The signal gate run before training: what is learnable in the data, with denominators (`make label-signal`) |
 | [`docs/adr/`](docs/adr/) | Architecture decision records: deviations from the build plan, with evidence |
