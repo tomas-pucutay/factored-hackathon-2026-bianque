@@ -3,7 +3,7 @@
 		install hooks \
 		format lint test check \
 		bronze-plan bronze silver gold quality pipeline \
-		label-signal train model-search evaluate \
+		label-signal train model-search evaluate disparities \
 		serve docker-build deploy deploy-secrets \
 		clean
 
@@ -70,6 +70,9 @@ model-search: ## Tuned ML vs the calibrated fraud_score (reports/model_search.md
 evaluate: ## Compare contact policies (reports/policy_comparison.md) and run agent evaluation
 	$(PY) -m $(PKG).evaluation.policy_compare
 	$(PY) -m $(PKG).evaluation.agent_eval
+
+disparities: ## Value, effectiveness and risk by customer group (reports/disparities.md)
+	$(PY) -m $(PKG).evaluation.disparities
 
 # --- Serving -----------------------------------------------------------------
 
