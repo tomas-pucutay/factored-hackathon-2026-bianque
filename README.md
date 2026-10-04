@@ -72,6 +72,7 @@ flowchart LR
 | The brief's metrics with denominators, 3/n bounds, latency, cost, by language and segment | [`reports/agent_evaluation.md`](reports/agent_evaluation.md) |
 | Route to operation | [Route to operation](#route-to-operation-and-remaining-work) |
 | Explanations from sources, policy rules and execution records | Policy decisions list their rules and numbers; audit log of every step |
+| Compare outcomes by language and segment, state sample limits, investigate disparities | [Disparities](#disparities-is-bianque-worth-more-or-riskier-for-some-customers) (age, segment, country, with tests); agent evaluation by language and segment |
 | Offline measurements, simulations and projections labeled | Every report states which it is |
 
 ## Requirements
@@ -281,6 +282,22 @@ The model only outputs a probability; [`policies/contact_policy_v1.yaml`](polici
 
 The guardrails (abstention, escalation, cap) cost USD 427 on test against the bare expected-value rule and keep 99.9% of cases automated. Trade-offs and alternatives: [ADR 0003](docs/adr/0003-contact-policy-v1.md).
 
+### Disparities: is Bianque worth more, or riskier, for some customers?
+
+```bash
+make disparities   # reports/disparities.md (about 1 min)
+```
+
+The real policy runs over the frozen sets, and age bands, segments and countries are compared on value (net benefit per 1,000 transactions, with bootstrap intervals), effectiveness (recall) and risk (false-alert rate, human cases, complaint outcomes). A difference counts only if it is significant after a Holm correction **and** holds on both validation and test.
+
+| Test set, by age band | 18-24 | 25-34 | 35-44 | 45-54 | 55-64 | 65+ |
+|---|---:|---:|---:|---:|---:|---:|
+| Recall | 0.54 | 0.67 | 0.64 | 0.58 | 0.63 | 0.64 |
+| False-alert rate | 10.5% | 10.5% | 10.7% | 10.5% | 10.7% | 10.5% |
+| Net benefit per 1,000 transactions (USD) | 792 | 1,192 | 966 | 1,070 | 629 | 657 |
+
+**No group is reliably more profitable or less risky.** None of the gaps above survives the tests (Holm p ≈ 1), and the ranking does not replicate: on validation 18-24 has the second-highest net benefit (USD 1,211). Amounts (median about USD 468 everywhere), complaint rates (about 445 per 1,000 customers) and SLA breaches (about 20%, p = 0.78) are the same across ages too. The recommendation is to **roll out to every customer at once**, let the expected-value rule prioritize by the charge, and **rerun this analysis on the bank's real data**, where groups usually do differ. In this synthetic dataset fraud is independent of the customer.
+
 ## Agent: the conversation, the actions and the handoff
 
 ```bash
@@ -404,6 +421,7 @@ Design decisions are documented with their evidence and the alternatives that we
 | [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines, net benefit with bootstrap intervals, by group (`make train`) |
 | [`reports/model_search.md`](reports/model_search.md) | Tuned ML with and without `fraud_score` vs the calibrator (`make model-search`) |
 | [`reports/policy_comparison.md`](reports/policy_comparison.md) | Contact policies: frauds caught, false alerts, human cases, net benefit, by group (`make evaluate`) |
+| [`reports/disparities.md`](reports/disparities.md) | Value, effectiveness and risk by age band, segment and country, with tests and replication (`make disparities`) |
 | [`reports/agent_evaluation.md`](reports/agent_evaluation.md) | Agent evaluation with the brief's metrics, run history (`make evaluate`) |
 | [`reports/agent_evaluation_run1.md`](reports/agent_evaluation_run1.md) | The first heldout run, before the fixes |
 | [`reports/agent_evaluation_heldout2.md`](reports/agent_evaluation_heldout2.md) | The second heldout set, run once after the fixes |
@@ -433,7 +451,7 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 |------|---------|--------------|
 | Data | `make pipeline` (or `make bronze`, `silver`, `gold`, `quality`) | S3 → bronze → silver → gold, serving slice, frozen sets, then the data quality checks and report |
 | Model | `make label-signal`, `make train`, `make model-search` | Signal gate, calibrator vs baselines (MLflow), tuned model search |
-| Evaluate | `make evaluate` | Contact policy comparison, then the agent evaluation with Gemini |
+| Evaluate | `make evaluate`, `make disparities` | Contact policy comparison, the agent evaluation with Gemini, disparities by customer group |
 | Serve | `make serve` | The API and the demo page locally |
 | Deploy | `make deploy-secrets`, `make deploy` | Secrets to Secret Manager, then build and deploy to Cloud Run |
 
