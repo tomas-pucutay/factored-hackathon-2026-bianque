@@ -54,7 +54,7 @@ flowchart LR
 | Contact policy | Done, evaluated | [Policy](#policy-when-to-contact-through-which-channel-and-when-a-human-takes-over), ADR 0003 |
 | Agent (LangGraph, Gemini, tools, handoff, audit) and demo | Done, deployed | [Agent](#agent-the-conversation-the-actions-and-the-handoff), ADR 0004 |
 | Agent evaluation | Done | [Agent evaluation](#agent-evaluation) |
-| Data quality report | **Not done** | [Remaining work](#route-to-operation-and-remaining-work) |
+| Data quality checks and report | Done: 343 error checks pass, 1 known warning | [Data quality](#data-quality-checks-from-the-contracts) |
 
 ## How Bianque meets the brief
 
@@ -66,7 +66,7 @@ flowchart LR
 | Permissions enforced in the tools, not in prompts | [`agent/tools.py`](src/bianque/agent/tools.py) |
 | Only verified actions reported | Read-back before every reply; template replies ([ADR 0004](docs/adr/0004-agent-replies-from-templates.md)) |
 | Handoff package, never a transcript dump | Request, verified facts, actions, evidence, open questions ([`docs/agent_design.md`](docs/agent_design.md) §6) |
-| Repeatable data preparation: contracts, lineage, update policy, late-arrival fixture | [Bronze](#bronze-s3-csv--parquet), [silver](#silver-typed-validated-private), [`fixtures/`](fixtures/README.md); quality report pending |
+| Repeatable data preparation: contracts, quality checks, lineage, update / freshness policy, late-arrival fixture | [Bronze](#bronze-s3-csv--parquet), [silver](#silver-typed-validated-private), [data quality](#data-quality-checks-from-the-contracts), [`fixtures/`](fixtures/README.md) |
 | A learned component vs baselines; valid labels, leakage controls, justified splits, metrics and thresholds | [Model](#model-a-calibrated-fraud-probability), [`docs/model_design.md`](docs/model_design.md) §4 |
 | Held-out evaluation: wrong or missing data, expired sessions, unauthorized access, injection, tool failures, multilingual ambiguity | [Agent evaluation](#agent-evaluation) |
 | The brief's metrics with denominators, 3/n bounds, latency, cost, by language and segment | [`reports/agent_evaluation.md`](reports/agent_evaluation.md) |
@@ -216,6 +216,23 @@ Key finding: the only fraud signal in this dataset is the bank's own `fraud_scor
 
 Design decisions and their rationale: [`docs/gold_design.md`](docs/gold_design.md).
 
+### Data quality: checks from the contracts
+
+```bash
+make quality   # data/_meta/quality/results.json and reports/data_quality.md (about 30 s)
+```
+
+Every rule a contract declares becomes a check on the built tables, with its denominator and examples of failing rows: required values, one row per primary key, allowed values (per element in list columns), ranges, structural NULLs, the business-day rule of `process_date`, and foreign keys. On top of them: **lineage** (bronze rows = silver + quarantined + duplicates removed; gold row counts match silver), **freshness** (each fact table's last day and days without data), a few business rules, and missing-data rates where each field applies.
+
+| Real data, 2026-10-04 | Result |
+|---|---|
+| Error checks (a contract rule is broken) | **343 / 343 pass** |
+| Warnings | 1: 8,277 campaign sends after their campaign ended (0.47%, a known source quirk) |
+| Lineage | 23,495,188 bronze rows → the same in silver, 0 quarantined, 0 duplicates; gold matches silver |
+| Freshness | All 7 fact tables end on 2026-06-17, with no missing days |
+
+Investigating the first run corrected a finding: the business-day rule does not hold for 100% of rows, as first reported. At exactly the cutoff second (06:00:00 or 08:00:00) the source assigns either day, about half each (51 of 108 such transactions on the previous day), consistent with timestamps truncated to the second. The check now accepts either day at that second and reports those rows apart. The report also has insights for the business case: fraud is 0.10% of transactions every year and 20% have no score; 20% of complaints breach their SLA.
+
 ## Model: a calibrated fraud probability
 
 ```bash
@@ -352,7 +369,7 @@ make deploy    # prints the service URL
 | Monitoring | Cloud Run metrics and logs; `/health` reports the model, cost assumptions and slice; every turn returns its latency and who understood it (Gemini or menu) | Alerts on error rate, latency, fallback rate and drift of the score distribution |
 | Access controls | Signed, expiring session per request; ownership and policy requirements in the tools; secrets in Secret Manager; upload allow-list; test endpoints labeled | A real identity provider; remove `/test/sessions` and `/demo/inbox`; operator authentication |
 | Data retention | Silver tokenizes PII (HMAC) and drops birth dates; the slice has no labels; cases and audit live in the instance's temporary disk (demo) | A managed database with a retention policy; PII in free-text transcripts is not tokenized |
-| Data quality | Contracts declare allowed values, ranges, structural NULLs and process-day rules | **The quality report** (`make quality`, `reports/data_quality.md`) is not implemented |
+| Data quality | `make quality`: 504 checks generated from the contracts, lineage and freshness, on the real data | Run it on a schedule after each ingestion and alert on failed error checks |
 
 ## Documentation
 
@@ -382,6 +399,7 @@ Design decisions are documented with their evidence and the alternatives that we
 
 | Report | Content |
 |--------|---------|
+| [`reports/data_quality.md`](reports/data_quality.md) | Data quality checks from the contracts, lineage bronze → gold, freshness and update policy, insights (`make quality`) |
 | [`reports/label_signal.md`](reports/label_signal.md) | What is learnable in the data, before training (`make label-signal`) |
 | [`reports/model_evaluation.md`](reports/model_evaluation.md) | Calibrators vs no skill and baselines, net benefit with bootstrap intervals, by group (`make train`) |
 | [`reports/model_search.md`](reports/model_search.md) | Tuned ML with and without `fraud_score` vs the calibrator (`make model-search`) |
@@ -413,7 +431,7 @@ Pre-commit hooks run gitleaks (secret scanning), basic file checks and ruff on e
 
 | Step | Command | What it does |
 |------|---------|--------------|
-| Data | `make bronze`, `make silver`, `make gold` | S3 → bronze → silver → gold, serving slice, frozen sets (`make pipeline` also runs the quality step, not implemented yet) |
+| Data | `make pipeline` (or `make bronze`, `silver`, `gold`, `quality`) | S3 → bronze → silver → gold, serving slice, frozen sets, then the data quality checks and report |
 | Model | `make label-signal`, `make train`, `make model-search` | Signal gate, calibrator vs baselines (MLflow), tuned model search |
 | Evaluate | `make evaluate` | Contact policy comparison, then the agent evaluation with Gemini |
 | Serve | `make serve` | The API and the demo page locally |
