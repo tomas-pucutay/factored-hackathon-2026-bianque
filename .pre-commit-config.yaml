@@ -11,6 +11,8 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=1000"]
+        # The presentation deck is the only file allowed past the limit.
+        exclude: '^Bianque - Explanation slides\.pptx$'
       - id: detect-private-key
       - id: check-yaml
       - id: check-toml
