@@ -8,6 +8,8 @@ Named after Bian Que, the physician whose eldest brother was the best doctor bec
 
 **Slides:** [Bianque - Explanation slides.pptx](Bianque%20-%20Explanation%20slides.pptx): why unrecognized charges (the problem in data), how the system works, the data and ML practice, the measured results, and what it would take to go live.
 
+**Video pitch:** [Bianque on YouTube](https://www.youtube.com/watch?v=fVK7FQQFGL4) (3 minutes): the problem, the product working in the live demo, and the core architectural decisions.
+
 ### Try it
 
 Pick a charge in the **proactive inbox** (a trusted test session is created for that customer), then answer as the customer:
@@ -441,6 +443,7 @@ Design decisions are documented with their evidence and the alternatives that we
 | Document | Read it for |
 |----------|-------------|
 | [Bianque - Explanation slides.pptx](Bianque%20-%20Explanation%20slides.pptx) | The 6-slide summary: the problem in data, the system, data and ML practice, results, route to operation |
+| [Video pitch (YouTube)](https://www.youtube.com/watch?v=fVK7FQQFGL4) | The 3-minute pitch: why, the working demo, how it is built |
 
 **Design**
 
